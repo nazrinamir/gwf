@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import PlayerManager, { resolveNames } from "../ui/player-manager";
-import { CATEGORIES, randomWord, type Category, type WordEntry } from "./words";
+import {
+  CATEGORIES,
+  randomHint,
+  randomWord,
+  type Category,
+  type WordEntry,
+} from "./words";
 
 type Phase = "setup" | "reveal" | "play" | "result";
 
@@ -29,6 +35,7 @@ export default function ImpostorPage() {
   const [categoryId, setCategoryId] = useState<string>("any");
 
   const [entry, setEntry] = useState<WordEntry | null>(null);
+  const [impostorHint, setImpostorHint] = useState("");
   const [chosenCategory, setChosenCategory] = useState<Category | null>(null);
   const [revealNames, setRevealNames] = useState<string[]>([]);
   const [impostorSet, setImpostorSet] = useState<Set<number>>(new Set());
@@ -56,6 +63,7 @@ export default function ImpostorPage() {
 
     setChosenCategory(category);
     setEntry(word);
+    setImpostorHint(randomHint(word));
     setRevealNames(resolveNames(players));
     setImpostorSet(new Set(indices));
     setRevealIndex(0);
@@ -75,6 +83,7 @@ export default function ImpostorPage() {
   function resetToSetup() {
     setPhase("setup");
     setEntry(null);
+    setImpostorHint("");
     setChosenCategory(null);
     setRevealNames([]);
     setImpostorSet(new Set());
@@ -122,7 +131,9 @@ export default function ImpostorPage() {
             position={revealIndex + 1}
             total={playerCount}
             isImpostor={impostorSet.has(revealIndex)}
+            impostorCount={impostorSet.size}
             entry={entry}
+            impostorHint={impostorHint}
             showingCard={showingCard}
             onShow={() => setShowingCard(true)}
             onNext={nextReveal}
@@ -141,6 +152,7 @@ export default function ImpostorPage() {
         {phase === "result" && entry && (
           <Result
             entry={entry}
+            impostorHint={impostorHint}
             category={chosenCategory}
             impostorSet={impostorSet}
             names={revealNames}
@@ -305,7 +317,9 @@ function Reveal({
   position,
   total,
   isImpostor,
+  impostorCount,
   entry,
+  impostorHint,
   showingCard,
   onShow,
   onNext,
@@ -314,7 +328,9 @@ function Reveal({
   position: number;
   total: number;
   isImpostor: boolean;
+  impostorCount: number;
   entry: WordEntry;
+  impostorHint: string;
   showingCard: boolean;
   onShow: () => void;
   onNext: () => void;
@@ -351,7 +367,7 @@ function Reveal({
         </div>
       ) : (
         <div className="mt-6 flex flex-col items-center">
-          {/* Hold-to-reveal card */}
+          {/* Hold-to-reveal flip card */}
           <div
             role="button"
             tabIndex={0}
@@ -366,67 +382,69 @@ function Reveal({
             }}
             onKeyUp={() => setHeld(false)}
             onBlur={() => setHeld(false)}
-            className={`relative w-full touch-none select-none overflow-hidden rounded-2xl ring-1 transition-all duration-300 ${
-              held
-                ? isImpostor
-                  ? "bg-rose-950/40 ring-rose-500/40"
-                  : "bg-zinc-900 ring-white/10"
-                : "bg-zinc-900 ring-white/10 active:scale-[0.99]"
-            }`}
+            className="flip-card h-112 w-full max-w-xs touch-none select-none outline-none"
           >
-            {/* Revealed content */}
-            <div
-              className={`flex min-h-76 flex-col items-center justify-center p-8 text-center transition-all duration-300 ${
-                held ? "scale-100 opacity-100 blur-0" : "scale-95 opacity-0 blur-sm"
-              }`}
-            >
-              {isImpostor ? (
-                <>
-                  <span className="text-5xl">🤫</span>
-                  <h2 className="mt-3 text-3xl font-bold text-rose-400">
-                    You&apos;re the Impostor
-                  </h2>
-                  <p className="mt-4 text-sm text-zinc-300">
-                    You don&apos;t know the word. Your only clue:
-                  </p>
-                  <p className="mt-2 rounded-xl bg-zinc-950/60 px-4 py-3 text-lg font-semibold text-zinc-100">
-                    {entry.hint}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <span className="text-xs uppercase tracking-widest text-zinc-500">
-                    The secret word is
-                  </span>
-                  <h2 className="mt-3 text-4xl font-bold text-sky-300">
-                    {entry.word}
-                  </h2>
-                  <p className="mt-4 text-sm text-zinc-400">
-                    Give a one-word hint that proves you know it.
-                  </p>
-                </>
-              )}
-            </div>
+            <div className={`flip-card-inner ${held ? "is-flipped" : ""}`}>
+              {/* Front face — neutral cover (what others might glimpse) */}
+              <div className="flip-face flex flex-col items-center justify-center gap-4 overflow-hidden rounded-3xl bg-linear-to-br from-zinc-800 to-zinc-900 p-8 text-center shadow-xl ring-1 ring-white/10">
+                <div className="absolute inset-3 rounded-2xl border border-white/5" />
+                <span className="text-6xl drop-shadow">🃏</span>
+                <p className="text-xl font-semibold text-zinc-100">
+                  Hold to reveal
+                </p>
+                <p className="px-4 text-sm text-zinc-400">
+                  Press and hold the card. Let go to flip it back.
+                </p>
+              </div>
 
-            {/* Cover overlay */}
-            <div
-              className={`absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl bg-zinc-800 text-center transition-opacity duration-300 ${
-                held ? "pointer-events-none opacity-0" : "opacity-100"
-              }`}
-            >
-              <span className="text-5xl">🤐</span>
-              <p className="text-lg font-semibold text-zinc-100">
-                Hold to reveal
-              </p>
-              <p className="px-8 text-sm text-zinc-400">
-                Press and hold the card. Let go to hide it again.
-              </p>
+              {/* Back face — revealed content. Identical neutral styling for
+                  everyone so a glance can't tell impostor from crew. */}
+              <div className="flip-face flip-face-back flex flex-col items-center justify-center overflow-hidden rounded-3xl bg-linear-to-br from-zinc-800 to-zinc-900 p-7 text-center shadow-xl ring-1 ring-white/10">
+                <div className="absolute inset-3 rounded-2xl border border-white/5" />
+                {isImpostor ? (
+                  <div className="relative flex flex-col items-center">
+                    <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                      Your role
+                    </span>
+                    <h2 className="mt-2 text-4xl font-bold tracking-wide text-red-300">
+                      IMPOSTOR
+                    </h2>
+                    <p className="mt-4 text-xs uppercase tracking-widest text-zinc-500">
+                      Your clue
+                    </p>
+                    <p className="mt-1 rounded-xl bg-black/30 px-4 py-2 text-lg font-semibold text-zinc-100">
+                      {impostorHint}
+                    </p>
+                    {impostorCount > 1 && (
+                      <p className="mt-4 rounded-xl bg-white/5 px-3 py-2 text-xs leading-relaxed text-zinc-300 ring-1 ring-white/10">
+                        {impostorCount === 2
+                          ? "1 other player shares this clue."
+                          : `${impostorCount - 1} other players share this clue.`}{" "}
+                        Use it first before them. Good luck.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="relative flex flex-col items-center">
+                    <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                      Your word
+                    </span>
+                    <h2 className="mt-2 text-4xl font-bold tracking-wide text-zinc-50">
+                      {entry.word}
+                    </h2>
+                    <p className="mt-5 px-2 text-sm text-zinc-400">
+                      Give a one-word hint that proves you know it — without
+                      making it obvious.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           <button
             onClick={onNext}
-            className="mt-4 w-full rounded-xl bg-zinc-100 py-4 text-lg font-semibold text-zinc-900 transition hover:bg-white active:scale-[0.99]"
+            className="mt-6 w-full rounded-xl bg-zinc-100 py-4 text-lg font-semibold text-zinc-900 transition hover:bg-white active:scale-[0.99]"
           >
             {isLast ? "Done — start giving hints" : "Hide & pass on"}
           </button>
@@ -486,6 +504,7 @@ function PlayPhase({
 
 function Result({
   entry,
+  impostorHint,
   category,
   impostorSet,
   names,
@@ -494,6 +513,7 @@ function Result({
   onNewSettings,
 }: {
   entry: WordEntry;
+  impostorHint: string;
   category: Category | null;
   impostorSet: Set<number>;
   names: string[];
@@ -533,7 +553,7 @@ function Result({
             ))}
           </div>
           <p className="mt-4 text-sm text-zinc-400">
-            Their hint was &ldquo;{entry.hint}&rdquo;
+            Their hint was &ldquo;{impostorHint}&rdquo;
           </p>
         </div>
       </div>
