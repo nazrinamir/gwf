@@ -80,6 +80,16 @@ a {
   }
 }
 
+/* Hide scrollbars on the carousel track while keeping it scrollable */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* 3D flip card */
 .flip-card {
   perspective: 1400px;

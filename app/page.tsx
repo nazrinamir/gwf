@@ -1,6 +1,5 @@
-import Image from "next/image";
-import Link from "next/link";
 import { GAMES } from "./games";
+import GameCarousel from "./ui/game-carousel";
 
 export default function Home() {
   return (
@@ -28,28 +27,7 @@ export default function Home() {
           </p>
         </header>
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          {GAMES.map((game) => (
-            <Link
-              key={game.href}
-              href={game.href}
-              className={`group relative aspect-3/4 overflow-hidden rounded-3xl ring-1 ring-white/10 transition duration-300 hover:-translate-y-1 hover:ring-2 ${game.hoverRing}`}
-            >
-              <Image
-                src={game.image}
-                alt={game.title}
-                fill
-                priority
-                sizes="(max-width: 640px) 100vw, 50vw"
-                className="object-cover transition-transform duration-500 group-hover:scale-105"
-              />
-              <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/20 to-transparent" />
-              <h2 className="absolute inset-x-0 bottom-0 p-6 text-center text-3xl font-bold tracking-tight drop-shadow-lg">
-                {game.title}
-              </h2>
-            </Link>
-          ))}
-        </div>
+        <GameCarousel games={GAMES} />
       </div>
     </main>
   );
