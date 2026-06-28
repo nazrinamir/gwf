@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ExitButton from "../ui/exit-button";
 import PlayerManager, { resolveNames } from "../ui/player-manager";
 import {
   type NightInput,
@@ -61,6 +61,52 @@ interface AfternoonOutcome {
 
 const MIN_PLAYERS = 5;
 const MAX_PLAYERS = 18;
+const STORAGE_KEY = "werewolf:setup";
+
+const DEFAULT_COUNTS: Record<RoleId, number> = {
+  werewolf: 1,
+  doctor: 1,
+  knight: 1,
+  jester: 1,
+  villager: 0,
+};
+
+interface StoredSetup {
+  players: string[];
+  villageName: string;
+  counts: Record<RoleId, number>;
+}
+
+function loadStoredSetup(): StoredSetup | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredSetup>;
+    if (!Array.isArray(parsed.players)) return null;
+    const players = parsed.players
+      .filter((p): p is string => typeof p === "string")
+      .slice(0, MAX_PLAYERS);
+    if (players.length < MIN_PLAYERS) return null;
+
+    const counts = { ...DEFAULT_COUNTS };
+    if (parsed.counts && typeof parsed.counts === "object") {
+      for (const id of Object.keys(DEFAULT_COUNTS) as RoleId[]) {
+        const v = (parsed.counts as Record<string, unknown>)[id];
+        if (typeof v === "number" && v >= 0) counts[id] = v;
+      }
+    }
+
+    return {
+      players,
+      villageName:
+        typeof parsed.villageName === "string" ? parsed.villageName : "",
+      counts,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export default function WerewolfPage() {
   const [phase, setPhase] = useState<Phase>("setup");
@@ -69,13 +115,31 @@ export default function WerewolfPage() {
   );
   const [villageName, setVillageName] = useState("");
   const playerCount = players.length;
-  const [counts, setCounts] = useState<Record<RoleId, number>>({
-    werewolf: 1,
-    doctor: 1,
-    knight: 1,
-    jester: 1,
-    villager: 0,
-  });
+  const [counts, setCounts] =
+    useState<Record<RoleId, number>>(DEFAULT_COUNTS);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Restore saved setup once on mount (client only) to survive reloads.
+  useEffect(() => {
+    const stored = loadStoredSetup();
+    if (stored) {
+      setPlayers(stored.players);
+      setVillageName(stored.villageName);
+      setCounts(stored.counts);
+    }
+    setHydrated(true);
+  }, []);
+
+  // Persist setup whenever it changes (after the initial restore).
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      const data: StoredSetup = { players, villageName, counts };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      // Ignore write errors (e.g. storage disabled or full).
+    }
+  }, [hydrated, players, villageName, counts]);
 
   const [game, setGame] = useState<Player[]>([]);
   const [revealIndex, setRevealIndex] = useState(0);
@@ -361,12 +425,7 @@ export default function WerewolfPage() {
   return (
     <main className="flex flex-1 flex-col bg-zinc-950 text-zinc-100">
       <div className="mx-auto w-full max-w-xl flex-1 px-5 py-8">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1 text-sm text-zinc-400 transition hover:text-zinc-200"
-        >
-          ← All games
-        </Link>
+        <ExitButton />
 
         <div className="mt-4 flex items-center gap-3">
           <span className="text-3xl">🐺</span>

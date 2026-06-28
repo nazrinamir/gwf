@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import ExitButton from "../ui/exit-button";
 import PlayerManager, { resolveNames } from "../ui/player-manager";
 import {
   CATEGORIES,
@@ -15,6 +15,38 @@ type Phase = "setup" | "reveal" | "play" | "result";
 
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 20;
+const STORAGE_KEY = "impostor:setup";
+
+interface StoredSetup {
+  players: string[];
+  impostorCount: number;
+  categoryId: string;
+}
+
+function loadStoredSetup(): StoredSetup | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredSetup>;
+    if (!Array.isArray(parsed.players)) return null;
+    const players = parsed.players
+      .filter((p): p is string => typeof p === "string")
+      .slice(0, MAX_PLAYERS);
+    if (players.length < MIN_PLAYERS) return null;
+    return {
+      players,
+      impostorCount:
+        typeof parsed.impostorCount === "number" && parsed.impostorCount >= 1
+          ? parsed.impostorCount
+          : 1,
+      categoryId:
+        typeof parsed.categoryId === "string" ? parsed.categoryId : "any",
+    };
+  } catch {
+    return null;
+  }
+}
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -33,6 +65,29 @@ export default function ImpostorPage() {
   const playerCount = players.length;
   const [impostorCount, setImpostorCount] = useState(1);
   const [categoryId, setCategoryId] = useState<string>("any");
+  const [hydrated, setHydrated] = useState(false);
+
+  // Restore saved setup once on mount (client only) to survive reloads.
+  useEffect(() => {
+    const stored = loadStoredSetup();
+    if (stored) {
+      setPlayers(stored.players);
+      setImpostorCount(stored.impostorCount);
+      setCategoryId(stored.categoryId);
+    }
+    setHydrated(true);
+  }, []);
+
+  // Persist setup whenever it changes (after the initial restore).
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      const data: StoredSetup = { players, impostorCount, categoryId };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      // Ignore write errors (e.g. storage disabled or full).
+    }
+  }, [hydrated, players, impostorCount, categoryId]);
 
   const [entry, setEntry] = useState<WordEntry | null>(null);
   const [impostorHint, setImpostorHint] = useState("");
@@ -98,12 +153,7 @@ export default function ImpostorPage() {
   return (
     <main className="flex flex-1 flex-col bg-zinc-950 text-zinc-100">
       <div className="mx-auto w-full max-w-xl flex-1 px-5 py-8">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1 text-sm text-zinc-400 transition hover:text-zinc-200"
-        >
-          ← All games
-        </Link>
+        <ExitButton />
 
         <div className="mt-4 flex items-center gap-3">
           <span className="text-3xl">🕵️</span>
@@ -145,6 +195,7 @@ export default function ImpostorPage() {
             playerCount={playerCount}
             impostorCount={impostorSet.size}
             category={chosenCategory}
+            names={revealNames}
             onReveal={() => setPhase("result")}
           />
         )}
@@ -458,15 +509,54 @@ function PlayPhase({
   playerCount,
   impostorCount,
   category,
+  names,
   onReveal,
 }: {
   playerCount: number;
   impostorCount: number;
   category: Category | null;
+  names: string[];
   onReveal: () => void;
 }) {
+  // Pick a random starter and rotation direction once per round.
+  const [starter] = useState(() => ({
+    index: Math.floor(Math.random() * playerCount),
+    direction: Math.random() < 0.5 ? ("left" as const) : ("right" as const),
+  }));
+  const starterName = names[starter.index] ?? `Player ${starter.index + 1}`;
+
   return (
     <div className="mt-6 space-y-6">
+      <div className="rounded-2xl bg-zinc-900 p-8 text-center ring-1 ring-white/10">
+        <h2 className="text-4xl font-extrabold leading-tight tracking-tight text-sky-300 sm:text-5xl">
+          {starterName}
+        </h2>
+        <p className="mt-2 text-lg font-medium text-zinc-200">
+          starts the conversation
+        </p>
+
+        <div className="mt-6 flex flex-col items-center gap-2">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className={`h-24 w-24 text-zinc-100 ${
+              starter.direction === "right" ? "" : "-scale-x-100"
+            }`}
+          >
+            <path d="M5 12h14" />
+            <path d="M13 6l6 6-6 6" />
+          </svg>
+          <p className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
+            Pass to the {starter.direction}
+          </p>
+        </div>
+      </div>
+
       <div className="rounded-2xl bg-zinc-900 p-6 ring-1 ring-white/10">
         <h2 className="text-lg font-semibold">Give your hints</h2>
         <p className="mt-2 text-sm leading-relaxed text-zinc-300">
