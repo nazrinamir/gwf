@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PlayerManager, { resolveNames } from "../ui/player-manager";
 import { CATEGORIES, randomWord, type Category, type WordEntry } from "./words";
 
@@ -320,6 +320,12 @@ function Reveal({
   onNext: () => void;
 }) {
   const isLast = position >= total;
+  const [held, setHeld] = useState(false);
+
+  // Always start each player's turn with the card covered.
+  useEffect(() => {
+    setHeld(false);
+  }, [position, showingCard]);
 
   return (
     <div className="mt-6">
@@ -334,7 +340,7 @@ function Reveal({
             Pass the phone to {playerName}
           </h2>
           <p className="mt-2 text-sm text-zinc-400">
-            Hide the screen from everyone else, then tap to see your card.
+            Hide the screen from everyone else, then hold your card to peek.
           </p>
           <button
             onClick={onShow}
@@ -344,47 +350,83 @@ function Reveal({
           </button>
         </div>
       ) : (
-        <div
-          className={`mt-6 flex flex-col items-center rounded-2xl p-8 text-center ring-1 ${
-            isImpostor
-              ? "bg-rose-950/40 ring-rose-500/40"
-              : "bg-zinc-900 ring-white/10"
-          }`}
-        >
-          {isImpostor ? (
-            <>
-              <span className="text-5xl">🤫</span>
-              <h2 className="mt-3 text-3xl font-bold text-rose-400">
-                You&apos;re the Impostor
-              </h2>
-              <p className="mt-4 text-sm text-zinc-300">
-                You don&apos;t know the word. Your only clue:
+        <div className="mt-6 flex flex-col items-center">
+          {/* Hold-to-reveal card */}
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Hold to reveal your card"
+            onPointerDown={() => setHeld(true)}
+            onPointerUp={() => setHeld(false)}
+            onPointerLeave={() => setHeld(false)}
+            onPointerCancel={() => setHeld(false)}
+            onContextMenu={(e) => e.preventDefault()}
+            onKeyDown={(e) => {
+              if (e.key === " " || e.key === "Enter") setHeld(true);
+            }}
+            onKeyUp={() => setHeld(false)}
+            onBlur={() => setHeld(false)}
+            className={`relative w-full touch-none select-none overflow-hidden rounded-2xl ring-1 transition-all duration-300 ${
+              held
+                ? isImpostor
+                  ? "bg-rose-950/40 ring-rose-500/40"
+                  : "bg-zinc-900 ring-white/10"
+                : "bg-zinc-900 ring-white/10 active:scale-[0.99]"
+            }`}
+          >
+            {/* Revealed content */}
+            <div
+              className={`flex min-h-76 flex-col items-center justify-center p-8 text-center transition-all duration-300 ${
+                held ? "scale-100 opacity-100 blur-0" : "scale-95 opacity-0 blur-sm"
+              }`}
+            >
+              {isImpostor ? (
+                <>
+                  <span className="text-5xl">🤫</span>
+                  <h2 className="mt-3 text-3xl font-bold text-rose-400">
+                    You&apos;re the Impostor
+                  </h2>
+                  <p className="mt-4 text-sm text-zinc-300">
+                    You don&apos;t know the word. Your only clue:
+                  </p>
+                  <p className="mt-2 rounded-xl bg-zinc-950/60 px-4 py-3 text-lg font-semibold text-zinc-100">
+                    {entry.hint}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <span className="text-xs uppercase tracking-widest text-zinc-500">
+                    The secret word is
+                  </span>
+                  <h2 className="mt-3 text-4xl font-bold text-sky-300">
+                    {entry.word}
+                  </h2>
+                  <p className="mt-4 text-sm text-zinc-400">
+                    Give a one-word hint that proves you know it.
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Cover overlay */}
+            <div
+              className={`absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl bg-zinc-800 text-center transition-opacity duration-300 ${
+                held ? "pointer-events-none opacity-0" : "opacity-100"
+              }`}
+            >
+              <span className="text-5xl">🤐</span>
+              <p className="text-lg font-semibold text-zinc-100">
+                Hold to reveal
               </p>
-              <p className="mt-2 rounded-xl bg-zinc-950/60 px-4 py-3 text-lg font-semibold text-zinc-100">
-                {entry.hint}
+              <p className="px-8 text-sm text-zinc-400">
+                Press and hold the card. Let go to hide it again.
               </p>
-              <p className="mt-4 text-sm text-zinc-400">
-                Bluff your way through. Give a hint vague enough to survive but
-                convincing enough to blend in.
-              </p>
-            </>
-          ) : (
-            <>
-              <span className="text-xs uppercase tracking-widest text-zinc-500">
-                The secret word is
-              </span>
-              <h2 className="mt-3 text-4xl font-bold text-sky-300">
-                {entry.word}
-              </h2>
-              <p className="mt-4 text-sm text-zinc-400">
-                Give a one-word hint that proves you know it — without making it
-                too easy for the impostor to guess.
-              </p>
-            </>
-          )}
+            </div>
+          </div>
+
           <button
             onClick={onNext}
-            className="mt-6 w-full rounded-xl bg-zinc-100 py-4 text-lg font-semibold text-zinc-900 transition hover:bg-white active:scale-[0.99]"
+            className="mt-4 w-full rounded-xl bg-zinc-100 py-4 text-lg font-semibold text-zinc-900 transition hover:bg-white active:scale-[0.99]"
           >
             {isLast ? "Done — start giving hints" : "Hide & pass on"}
           </button>
