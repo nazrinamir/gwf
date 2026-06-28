@@ -1,22 +1,16 @@
 export type Team = "village" | "werewolf" | "neutral";
 
-export type RoleId =
-  | "werewolf"
-  | "doctor"
-  | "seeker"
-  | "knight"
-  | "jester"
-  | "villager";
+export type RoleId = "werewolf" | "doctor" | "knight" | "jester" | "villager";
 
 export interface Role {
   id: RoleId;
   name: string;
   team: Team;
   emoji: string;
+  /** Card artwork served from /public/werewolf. */
+  image: string;
   short: string;
   description: string;
-  /** Whether a moderator wakes this role during the night phase. */
-  nightAction: boolean;
 }
 
 export const ROLES: Record<RoleId, Role> = {
@@ -25,71 +19,97 @@ export const ROLES: Record<RoleId, Role> = {
     name: "Werewolf",
     team: "werewolf",
     emoji: "🐺",
-    short: "Eliminate a player each night.",
+    image: "/werewolf/werewolf.png",
+    short: "Hunt a house each night (80%).",
     description:
-      "Each night the werewolves wake together and silently agree on one player to eliminate. By day, blend in and avoid suspicion. Werewolves win when they equal or outnumber the village.",
-    nightAction: true,
+      "Each night you may attack a house. Your strike lands 80% of the time — fail and you can disguise your escape. Sleeping rests you but lowers your odds next time. Win when the wolves equal the rest of the village.",
   },
   doctor: {
     id: "doctor",
     name: "Doctor",
     team: "village",
     emoji: "🩺",
-    short: "Protect one player each night.",
+    image: "/werewolf/doctor.png",
+    short: "Brew medicine to revive the fallen.",
     description:
-      "Each night, choose one player to save. If the werewolves attack that player, they survive. You may protect yourself, but choose wisely — the right save can swing the game.",
-    nightAction: true,
-  },
-  seeker: {
-    id: "seeker",
-    name: "Seeker",
-    team: "village",
-    emoji: "🔮",
-    short: "Inspect one player each night.",
-    description:
-      "Each night, point at one player. The moderator silently signals whether that player is a werewolf. Use what you learn to guide the village — but reveal yourself too early and the wolves will target you.",
-    nightAction: true,
+      "Each night you brew medicine. With enough villager help you can revive one fallen player. Only ONE villager may help per night — a crowd just fumbles the cure.",
   },
   knight: {
     id: "knight",
     name: "Knight",
     team: "village",
     emoji: "🛡️",
-    short: "One-time public strike.",
+    image: "/werewolf/knight.png",
+    short: "Guard two houses; jail a suspect.",
     description:
-      "Once per game, during the day, you may publicly draw your sword and strike a player you suspect. If they are a werewolf, they are eliminated. If they are innocent, you fall instead. Use it to break a deadlock.",
-    nightAction: false,
+      "Each night you post soldiers to guard two houses. If a wolf strikes a guarded house, a soldier dies in your stead and leaves a blood trail. Once per game you may jail a suspect — they're out until the village votes on their fate.",
   },
   jester: {
     id: "jester",
     name: "Jester",
     team: "neutral",
     emoji: "🃏",
-    short: "Get yourself voted out to win.",
+    image: "/werewolf/jester.png",
+    short: "Break in and run. Get voted out.",
     description:
-      "You are on nobody's side. You win — instantly and alone — if the village votes to eliminate you during the day. Act suspicious enough to get lynched, but not so obvious that they spare you out of spite.",
-    nightAction: false,
+      "Each night you may smash a window and flee, leaving a scare that looks exactly like a failed wolf attack. You win — alone — if the village votes to execute you.",
   },
   villager: {
     id: "villager",
     name: "Villager",
     team: "village",
     emoji: "🧑‍🌾",
-    short: "No powers — just your wits.",
+    image: "/werewolf/villager.png",
+    short: "No powers — but a hidden trait.",
     description:
-      "You have no special ability. Watch the discussion, share your reads, and vote carefully each day. The village wins when every werewolf has been eliminated.",
-    nightAction: false,
+      "You have no special power, but a hidden trait shapes your nights. Help the Doctor brew, aid the Lead Villager, and root out the wolves.",
   },
 };
 
-/** Roles that can be assigned a configurable count during setup (villager fills the rest). */
+/** Villager-only hidden traits. Every villager gets exactly one. */
+export type Trait = "shortsighted" | "drugaddict" | "insomniac";
+
+export interface TraitInfo {
+  id: Trait;
+  name: string;
+  emoji: string;
+  short: string;
+  description: string;
+}
+
+export const TRAITS: Record<Trait, TraitInfo> = {
+  shortsighted: {
+    id: "shortsighted",
+    name: "Short-sighted",
+    emoji: "👓",
+    short: "Can't see who breaks in.",
+    description:
+      "If someone breaks into your house, you'll know it happened — but never who it was.",
+  },
+  drugaddict: {
+    id: "drugaddict",
+    name: "Drug addict",
+    emoji: "🍄",
+    short: "Hallucinates break-ins.",
+    description:
+      "Some nights you hallucinate that someone broke into your house — you can never be quite sure what was real.",
+  },
+  insomniac: {
+    id: "insomniac",
+    name: "Insomniac",
+    emoji: "👁️",
+    short: "Can spy on a house at night.",
+    description:
+      "Some nights you can creep to another house and witness what they're truly doing. If a wolf comes for you that night, you're already awake — and safe.",
+  },
+};
+
+export const ALL_TRAITS: Trait[] = ["shortsighted", "drugaddict", "insomniac"];
+
+/** Roles whose count is configured at setup. Villagers fill the rest. */
 export const CONFIGURABLE_ROLES: RoleId[] = [
   "werewolf",
   "doctor",
-  "seeker",
   "knight",
   "jester",
 ];
-
-/** Suggested order the moderator should call roles during the night. */
-export const NIGHT_ORDER: RoleId[] = ["werewolf", "doctor", "seeker"];
