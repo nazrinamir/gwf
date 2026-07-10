@@ -9,10 +9,21 @@ type Phase = "setup" | "ready" | "countdown" | "play" | "results";
 type Flash = "correct" | "skip" | null;
 
 const ROUND_OPTIONS = [30, 60, 90] as const;
-/** Degrees away from calibrated forehead rest before a tilt counts. */
-const TILT_TRIGGER = 28;
-/** Must return this close to rest before the next tilt can fire. */
-const TILT_NEUTRAL = 12;
+
+/**
+ * Absolute forehead pitch bands (degrees).
+ * Upright on forehead ≈ 90. Large gap between triggers = not twitchy.
+ *   pitch < CORRECT_BELOW  → tilted toward floor  → correct
+ *   pitch > SKIP_ABOVE     → tilted toward ceiling → skip
+ *   otherwise              → dead zone (ignored)
+ */
+const CORRECT_BELOW = 40;
+const SKIP_ABOVE = 140;
+/** Must return inside this band before another tilt can fire. */
+const REARM_LO = 70;
+const REARM_HI = 110;
+
+type TiltDir = "neutral" | "correct" | "skip";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -41,33 +52,33 @@ function screenAngle(): number {
 }
 
 /**
- * Nod axis for forehead play.
- * Landscape: gamma (sign flipped for the other landscape direction).
- * Portrait: beta (0 flat, ~90 upright on forehead).
+ * Map deviceorientation → forehead pitch:
+ *   ~0   = top of phone toward floor (nod down)  → correct
+ *   ~90  = upright on forehead                   → dead zone
+ *   ~180 = top of phone toward ceiling (nod up)  → skip
  */
-function nodFromOrientation(e: DeviceOrientationEvent): number | null {
+function foreheadPitch(e: DeviceOrientationEvent): number | null {
+  if (e.beta == null) return null;
+  const beta = e.beta;
+  const gamma = e.gamma ?? 0;
   const angle = ((screenAngle() % 360) + 360) % 360;
   const landscape = angle === 90 || angle === 270;
 
-  if (landscape) {
-    if (e.gamma == null) return null;
-    // 90° and 270° flip which way is "up".
-    return angle === 90 ? e.gamma : -e.gamma;
+  // Some phones in landscape park beta near 0 and put upright on |gamma|≈90.
+  // Only use that path while beta is still near flat — once the user nods,
+  // beta usually leaves this band and the normal beta mapping takes over.
+  if (landscape && Math.abs(beta) < 20 && Math.abs(gamma) > 55) {
+    // upright |gamma|≈90 → pitch 90; nod down shrinks |gamma| → lower pitch
+    return Math.abs(gamma);
   }
-  if (e.beta == null) return null;
-  return e.beta;
+
+  return beta;
 }
 
-/** Gravity-based nod — often more reliable than orientation angles. */
-function nodFromMotion(e: DeviceMotionEvent): number | null {
-  const g = e.accelerationIncludingGravity;
-  if (!g || g.x == null || g.y == null || g.z == null) return null;
-  const angle = ((screenAngle() % 360) + 360) % 360;
-  // Pick the axis that tracks forehead nod in the current orientation.
-  if (angle === 90) return g.x;
-  if (angle === 270) return -g.x;
-  // Portrait / near-portrait: Y is up the screen.
-  return g.y;
+function tiltDirection(pitch: number): TiltDir {
+  if (pitch < CORRECT_BELOW) return "correct";
+  if (pitch > SKIP_ABOVE) return "skip";
+  return "neutral";
 }
 
 function useLandscape(): boolean {
@@ -103,11 +114,6 @@ export default function CharadePage() {
   phaseRef.current = phase;
   const currentWordRef = useRef("");
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Calibrated resting nod while phone is on the forehead. */
-  const baselineRef = useRef<number | null>(null);
-  const baselineSamples = useRef<number[]>([]);
-  /** Prefer orientation degrees; fall back to gravity units. */
-  const useGravityRef = useRef(false);
 
   const currentWord = deck[deckIndex] ?? "";
   currentWordRef.current = currentWord;
@@ -148,7 +154,6 @@ export default function CharadePage() {
       flashTimer.current = setTimeout(() => {
         setFlash(null);
         nextWord();
-        // Brief pause before next tilt can fire.
         setTimeout(() => {
           cooldownRef.current = false;
         }, 350);
@@ -170,7 +175,6 @@ export default function CharadePage() {
         const result = await DOE.requestPermission();
         if (result !== "granted") return false;
       }
-      // iOS also gates DeviceMotion behind its own prompt.
       if (typeof DME.requestPermission === "function") {
         const result = await DME.requestPermission();
         if (result !== "granted") return false;
@@ -192,9 +196,6 @@ export default function CharadePage() {
     setFlash(null);
     armedRef.current = true;
     cooldownRef.current = false;
-    baselineRef.current = null;
-    baselineSamples.current = [];
-    useGravityRef.current = false;
     setPhase("ready");
   }
 
@@ -230,88 +231,45 @@ export default function CharadePage() {
     return () => clearInterval(id);
   }, [phase, roundSeconds]);
 
-  // Tilt: down = correct, up = skip (calibrated to forehead rest pose)
+  // Tilt: down = correct, up = skip. Absolute pitch bands + wide dead zone.
   useEffect(() => {
     if (phase !== "play" || !motionOk) return;
 
-    baselineRef.current = null;
-    baselineSamples.current = [];
-    armedRef.current = false; // wait until calibrated + near rest
-    useGravityRef.current = false;
+    armedRef.current = true;
+    let sawEvent = false;
 
-    let gotOrientation = false;
-    let gotMotion = false;
-
-    const handleNod = (raw: number, mode: "orient" | "gravity") => {
+    const onOrient = (e: DeviceOrientationEvent) => {
       if (phaseRef.current !== "play" || cooldownRef.current) return;
+      const pitch = foreheadPitch(e);
+      if (pitch == null) return;
+      sawEvent = true;
 
-      // Prefer orientation once we have it; ignore gravity after that.
-      if (mode === "gravity" && gotOrientation) return;
-      if (mode === "orient") {
-        gotOrientation = true;
-        useGravityRef.current = false;
-      } else {
-        gotMotion = true;
-        if (!gotOrientation) useGravityRef.current = true;
-      }
+      const dir = tiltDirection(pitch);
 
-      const trigger = useGravityRef.current ? 4.5 : TILT_TRIGGER;
-      const neutral = useGravityRef.current ? 2 : TILT_NEUTRAL;
-
-      // Calibrate resting forehead pose from the first stable samples.
-      if (baselineRef.current == null) {
-        baselineSamples.current.push(raw);
-        if (baselineSamples.current.length < 8) return;
-        const samples = baselineSamples.current;
-        const avg = samples.reduce((s, n) => s + n, 0) / samples.length;
-        baselineRef.current = avg;
-        armedRef.current = true;
-        return;
-      }
-
-      const delta = raw - baselineRef.current;
-
+      // Re-arm only after returning to the upright dead zone.
       if (!armedRef.current) {
-        if (Math.abs(delta) < neutral) {
+        if (pitch >= REARM_LO && pitch <= REARM_HI) {
           armedRef.current = true;
         }
         return;
       }
 
-      // Positive delta = tilt up (skip); negative = tilt down (correct).
-      if (delta <= -trigger) {
+      if (dir === "correct") {
         resolveAnswer("correct");
-      } else if (delta >= trigger) {
+      } else if (dir === "skip") {
         resolveAnswer("skip");
       }
     };
 
-    const onOrient = (e: DeviceOrientationEvent) => {
-      const nod = nodFromOrientation(e);
-      if (nod == null) return;
-      handleNod(nod, "orient");
-    };
+    window.addEventListener("deviceorientation", onOrient, true);
 
-    const onMotion = (e: DeviceMotionEvent) => {
-      const nod = nodFromMotion(e);
-      if (nod == null) return;
-      handleNod(nod, "gravity");
-    };
-
-    window.addEventListener("deviceorientation", onOrient);
-    window.addEventListener("devicemotion", onMotion);
-
-    // If nothing arrives (HTTP / denied / desktop), fall back to buttons.
     const probe = window.setTimeout(() => {
-      if (!gotOrientation && !gotMotion) {
-        setMotionOk(false);
-      }
+      if (!sawEvent) setMotionOk(false);
     }, 2000);
 
     return () => {
       window.clearTimeout(probe);
-      window.removeEventListener("deviceorientation", onOrient);
-      window.removeEventListener("devicemotion", onMotion);
+      window.removeEventListener("deviceorientation", onOrient, true);
     };
   }, [phase, motionOk, resolveAnswer]);
 
@@ -579,8 +537,8 @@ export default function CharadePage() {
               ↓ tilt down = correct · ↑ tilt up = skip
             </p>
             <p className="max-w-sm text-xs text-zinc-600">
-              Hold still on your forehead for a moment so it can calibrate. On
-              iPhone, tap Allow for motion access.
+              Give a clear nod — small twitches are ignored. On iPhone, tap
+              Allow for motion access.
             </p>
             <TapButton
               onPress={beginFromReady}
@@ -650,7 +608,7 @@ export default function CharadePage() {
             <p className="mt-6 text-xs text-zinc-500">
               ↓ correct · ↑ skip
               {motionOk
-                ? " · hold still briefly to calibrate"
+                ? " · nod clearly past the dead zone"
                 : " · tilt unavailable — use buttons"}
             </p>
           </div>
