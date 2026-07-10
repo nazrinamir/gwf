@@ -5,25 +5,38 @@ import ExitButton from "../ui/exit-button";
 import TapButton from "../ui/tap-button";
 import { CATEGORIES, type Category } from "../impostor/words";
 
-type Phase = "setup" | "ready" | "countdown" | "play" | "results";
+type Phase =
+  | "setup"
+  | "calibrate"
+  | "countdown"
+  | "play"
+  | "results";
 type Flash = "correct" | "skip" | null;
+type CalibStep = "down" | "up" | "done";
 
 const ROUND_OPTIONS = [30, 60, 90] as const;
-
-/**
- * Absolute forehead pitch bands (degrees).
- * Upright on forehead ≈ 90. Large gap between triggers = not twitchy.
- *   pitch < CORRECT_BELOW  → tilted toward floor  → correct
- *   pitch > SKIP_ABOVE     → tilted toward ceiling → skip
- *   otherwise              → dead zone (ignored)
- */
-const CORRECT_BELOW = 40;
-const SKIP_ABOVE = 140;
-/** Must return inside this band before another tilt can fire. */
-const REARM_LO = 70;
-const REARM_HI = 110;
+const CALIB_NEED = 3;
+/** How far from rest (°) before a nod starts counting during calibration. */
+const CALIB_MOVE = 16;
+/** How close to rest (°) to finish a nod during calibration. */
+const CALIB_RETURN = 14;
+/** Play uses this fraction of the calibrated nod depth (less twitchy). */
+const PLAY_EASE = 0.7;
 
 type TiltDir = "neutral" | "correct" | "skip";
+
+type Calibration = {
+  rest: number;
+  down: number;
+  up: number;
+};
+
+type Monitor = {
+  beta: number | null;
+  gamma: number | null;
+  pitch: number | null;
+  zone: "rest" | "down" | "up" | "—";
+};
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -43,6 +56,10 @@ function buildDeck(categoryId: string): string[] {
   return shuffle(words);
 }
 
+function mean(nums: number[]): number {
+  return nums.reduce((s, n) => s + n, 0) / nums.length;
+}
+
 function screenAngle(): number {
   if (typeof screen !== "undefined" && screen.orientation?.angle != null) {
     return screen.orientation.angle;
@@ -53,9 +70,7 @@ function screenAngle(): number {
 
 /**
  * Map deviceorientation → forehead pitch:
- *   ~0   = top of phone toward floor (nod down)  → correct
- *   ~90  = upright on forehead                   → dead zone
- *   ~180 = top of phone toward ceiling (nod up)  → skip
+ *   lower / higher relative to rest depends on the device — calibration learns it.
  */
 function foreheadPitch(e: DeviceOrientationEvent): number | null {
   if (e.beta == null) return null;
@@ -64,21 +79,40 @@ function foreheadPitch(e: DeviceOrientationEvent): number | null {
   const angle = ((screenAngle() % 360) + 360) % 360;
   const landscape = angle === 90 || angle === 270;
 
-  // Some phones in landscape park beta near 0 and put upright on |gamma|≈90.
-  // Only use that path while beta is still near flat — once the user nods,
-  // beta usually leaves this band and the normal beta mapping takes over.
   if (landscape && Math.abs(beta) < 20 && Math.abs(gamma) > 55) {
-    // upright |gamma|≈90 → pitch 90; nod down shrinks |gamma| → lower pitch
     return Math.abs(gamma);
   }
-
   return beta;
 }
 
-function tiltDirection(pitch: number): TiltDir {
-  if (pitch < CORRECT_BELOW) return "correct";
-  if (pitch > SKIP_ABOVE) return "skip";
+function tiltFromCalibration(
+  pitch: number,
+  calib: Calibration,
+): TiltDir {
+  const { rest, down, up } = calib;
+  const downGate = rest + (down - rest) * PLAY_EASE;
+  const upGate = rest + (up - rest) * PLAY_EASE;
+
+  const towardDown =
+    down < rest ? pitch <= downGate : pitch >= downGate;
+  const towardUp = up > rest ? pitch >= upGate : pitch <= upGate;
+
+  if (towardDown && !towardUp) return "correct";
+  if (towardUp && !towardDown) return "skip";
+  if (towardDown && towardUp) {
+    return Math.abs(pitch - down) <= Math.abs(pitch - up)
+      ? "correct"
+      : "skip";
+  }
   return "neutral";
+}
+
+function inRearmBand(pitch: number, calib: Calibration): boolean {
+  const span = Math.max(
+    12,
+    Math.abs(calib.up - calib.down) * 0.14,
+  );
+  return pitch >= calib.rest - span && pitch <= calib.rest + span;
 }
 
 function useLandscape(): boolean {
@@ -91,6 +125,24 @@ function useLandscape(): boolean {
     return () => mq.removeEventListener("change", update);
   }, []);
   return landscape;
+}
+
+function DotRow({ filled, total, color }: { filled: number; total: number; color: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          className={`h-3 w-3 rounded-full ring-1 ${
+            i < filled ? color : "bg-zinc-800 ring-white/10"
+          }`}
+        />
+      ))}
+      <span className="ml-1 font-mono text-xs text-zinc-400 tabular-nums">
+        {filled}/{total}
+      </span>
+    </div>
+  );
 }
 
 export default function CharadePage() {
@@ -108,12 +160,37 @@ export default function CharadePage() {
   const [flash, setFlash] = useState<Flash>(null);
   const [motionOk, setMotionOk] = useState(false);
 
+  // Calibration UI state
+  const [calibStep, setCalibStep] = useState<CalibStep>("down");
+  const [downCount, setDownCount] = useState(0);
+  const [upCount, setUpCount] = useState(0);
+  const [monitor, setMonitor] = useState<Monitor>({
+    beta: null,
+    gamma: null,
+    pitch: null,
+    zone: "—",
+  });
+  const [calibFlash, setCalibFlash] = useState<"down" | "up" | null>(null);
+  const [sensorsOn, setSensorsOn] = useState(false);
+
   const armedRef = useRef(true);
   const cooldownRef = useRef(false);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const currentWordRef = useRef("");
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const calibRef = useRef<Calibration | null>(null);
+
+  // Calibration tracking refs
+  const restRef = useRef<number | null>(null);
+  const restSamplesRef = useRef<number[]>([]);
+  const trackingRef = useRef<"none" | "nod">("none");
+  const nodMinRef = useRef(0);
+  const nodMaxRef = useRef(0);
+  const downPeaksRef = useRef<number[]>([]);
+  const upPeaksRef = useRef<number[]>([]);
+  const calibStepRef = useRef<CalibStep>("down");
+  calibStepRef.current = calibStep;
 
   const currentWord = deck[deckIndex] ?? "";
   currentWordRef.current = currentWord;
@@ -185,6 +262,35 @@ export default function CharadePage() {
     }
   }
 
+  function resetCalibration() {
+    restRef.current = null;
+    restSamplesRef.current = [];
+    trackingRef.current = "none";
+    downPeaksRef.current = [];
+    upPeaksRef.current = [];
+    calibRef.current = null;
+    setCalibStep("down");
+    setDownCount(0);
+    setUpCount(0);
+    setCalibFlash(null);
+    setMonitor({ beta: null, gamma: null, pitch: null, zone: "—" });
+  }
+
+  function finishCalibration() {
+    const rest = restRef.current;
+    const downs = downPeaksRef.current;
+    const ups = upPeaksRef.current;
+    if (rest == null || downs.length < CALIB_NEED || ups.length < CALIB_NEED) {
+      return;
+    }
+    calibRef.current = {
+      rest,
+      down: mean(downs.slice(0, CALIB_NEED)),
+      up: mean(ups.slice(0, CALIB_NEED)),
+    };
+    setCalibStep("done");
+  }
+
   function startRound() {
     const words = buildDeck(categoryId);
     setDeck(words.length ? words : ["Charade"]);
@@ -196,12 +302,23 @@ export default function CharadePage() {
     setFlash(null);
     armedRef.current = true;
     cooldownRef.current = false;
-    setPhase("ready");
+    setSensorsOn(false);
+    setMotionOk(false);
+    resetCalibration();
+    setPhase("calibrate");
   }
 
-  async function beginFromReady() {
+  async function beginCalibration() {
     const ok = await requestMotionPermission();
     setMotionOk(ok);
+    setSensorsOn(true);
+    resetCalibration();
+  }
+
+  function beginGame() {
+    if (!calibRef.current) finishCalibration();
+    if (!calibRef.current) return;
+    setCountdown(3);
     setPhase("countdown");
   }
 
@@ -216,7 +333,7 @@ export default function CharadePage() {
     return () => clearTimeout(t);
   }, [phase, countdown]);
 
-  // Match timer — fresh clock when play starts.
+  // Match timer
   useEffect(() => {
     if (phase !== "play") return;
     const deadline = Date.now() + roundSeconds * 1000;
@@ -224,53 +341,141 @@ export default function CharadePage() {
     const id = setInterval(() => {
       const left = Math.max(0, (deadline - Date.now()) / 1000);
       setTimeLeft(left);
-      if (left <= 0) {
-        setPhase("results");
-      }
+      if (left <= 0) setPhase("results");
     }, 100);
     return () => clearInterval(id);
   }, [phase, roundSeconds]);
 
-  // Tilt: down = correct, up = skip. Absolute pitch bands + wide dead zone.
+  // Calibration + live monitor
   useEffect(() => {
-    if (phase !== "play" || !motionOk) return;
+    if (phase !== "calibrate" || !sensorsOn) return;
 
-    armedRef.current = true;
     let sawEvent = false;
 
     const onOrient = (e: DeviceOrientationEvent) => {
-      if (phaseRef.current !== "play" || cooldownRef.current) return;
       const pitch = foreheadPitch(e);
-      if (pitch == null) return;
+      const beta = e.beta;
+      const gamma = e.gamma;
+
+      if (pitch == null) {
+        setMonitor({
+          beta,
+          gamma,
+          pitch: null,
+          zone: "—",
+        });
+        return;
+      }
       sawEvent = true;
 
-      const dir = tiltDirection(pitch);
-
-      // Re-arm only after returning to the upright dead zone.
-      if (!armedRef.current) {
-        if (pitch >= REARM_LO && pitch <= REARM_HI) {
-          armedRef.current = true;
+      // Establish resting forehead angle from the first stable samples.
+      if (restRef.current == null) {
+        restSamplesRef.current.push(pitch);
+        setMonitor({ beta, gamma, pitch, zone: "rest" });
+        if (restSamplesRef.current.length >= 12) {
+          restRef.current = mean(restSamplesRef.current);
         }
         return;
       }
 
-      if (dir === "correct") {
-        resolveAnswer("correct");
-      } else if (dir === "skip") {
-        resolveAnswer("skip");
+      const rest = restRef.current;
+      const delta = pitch - rest;
+      let zone: Monitor["zone"] = "rest";
+      if (delta < -CALIB_MOVE / 2) zone = "down";
+      else if (delta > CALIB_MOVE / 2) zone = "up";
+
+      setMonitor({ beta, gamma, pitch, zone });
+
+      if (calibStepRef.current === "done") return;
+
+      if (trackingRef.current === "none") {
+        if (Math.abs(delta) >= CALIB_MOVE) {
+          trackingRef.current = "nod";
+          nodMinRef.current = pitch;
+          nodMaxRef.current = pitch;
+        } else {
+          // Slow rest drift while holding still.
+          restRef.current = rest * 0.98 + pitch * 0.02;
+        }
+        return;
+      }
+
+      // Tracking a nod — record extrema until return to rest.
+      nodMinRef.current = Math.min(nodMinRef.current, pitch);
+      nodMaxRef.current = Math.max(nodMaxRef.current, pitch);
+
+      if (Math.abs(pitch - rest) > CALIB_RETURN) return;
+
+      const far =
+        Math.abs(nodMinRef.current - rest) >= Math.abs(nodMaxRef.current - rest)
+          ? nodMinRef.current
+          : nodMaxRef.current;
+      trackingRef.current = "none";
+
+      const step = calibStepRef.current;
+      if (step === "down") {
+        downPeaksRef.current = [...downPeaksRef.current, far];
+        const n = downPeaksRef.current.length;
+        setDownCount(n);
+        setCalibFlash("down");
+        window.setTimeout(() => setCalibFlash(null), 400);
+        if (n >= CALIB_NEED) setCalibStep("up");
+      } else if (step === "up") {
+        upPeaksRef.current = [...upPeaksRef.current, far];
+        const n = upPeaksRef.current.length;
+        setUpCount(n);
+        setCalibFlash("up");
+        window.setTimeout(() => setCalibFlash(null), 400);
+        if (n >= CALIB_NEED) {
+          // Finalize thresholds.
+          const downs = downPeaksRef.current;
+          const ups = upPeaksRef.current;
+          calibRef.current = {
+            rest: restRef.current ?? rest,
+            down: mean(downs.slice(0, CALIB_NEED)),
+            up: mean(ups.slice(0, CALIB_NEED)),
+          };
+          setCalibStep("done");
+        }
       }
     };
 
     window.addEventListener("deviceorientation", onOrient, true);
-
     const probe = window.setTimeout(() => {
       if (!sawEvent) setMotionOk(false);
-    }, 2000);
+    }, 2500);
 
     return () => {
       window.clearTimeout(probe);
       window.removeEventListener("deviceorientation", onOrient, true);
     };
+  }, [phase, sensorsOn]);
+
+  // Play tilt using calibrated thresholds
+  useEffect(() => {
+    if (phase !== "play" || !motionOk) return;
+    const calib = calibRef.current;
+    if (!calib) return;
+
+    armedRef.current = true;
+
+    const onOrient = (e: DeviceOrientationEvent) => {
+      if (phaseRef.current !== "play" || cooldownRef.current) return;
+      const pitch = foreheadPitch(e);
+      if (pitch == null) return;
+
+      if (!armedRef.current) {
+        if (inRearmBand(pitch, calib)) armedRef.current = true;
+        return;
+      }
+
+      const dir = tiltFromCalibration(pitch, calib);
+      if (dir === "correct") resolveAnswer("correct");
+      else if (dir === "skip") resolveAnswer("skip");
+    };
+
+    window.addEventListener("deviceorientation", onOrient, true);
+    return () => window.removeEventListener("deviceorientation", onOrient, true);
   }, [phase, motionOk, resolveAnswer]);
 
   useEffect(() => {
@@ -380,10 +585,10 @@ export default function CharadePage() {
                 How it works
               </h2>
               <ul className="mt-3 space-y-2 text-sm text-zinc-400">
-                <li>1. Hold the phone on your forehead in landscape.</li>
-                <li>2. Friends give clues — you don&apos;t look at the screen.</li>
-                <li>3. Tilt down = correct · tilt up = skip.</li>
-                <li>4. See your score and every word at the end.</li>
+                <li>1. Calibrate tilt (3 downs, 3 ups) for your phone.</li>
+                <li>2. Hold the phone on your forehead in landscape.</li>
+                <li>3. Friends give clues — you don&apos;t look at the screen.</li>
+                <li>4. Tilt down = correct · tilt up = skip.</li>
               </ul>
             </section>
           </div>
@@ -410,19 +615,20 @@ export default function CharadePage() {
       <main className="relative flex flex-1 flex-col overflow-y-auto bg-zinc-950 text-zinc-100">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute -left-20 top-10 h-64 w-64 rounded-full bg-amber-500/15 blur-3xl" />
+          <div className="absolute -right-16 bottom-10 h-56 w-56 rounded-full bg-orange-500/10 blur-3xl" />
         </div>
-        <div className="relative mx-auto w-full max-w-xl flex-1 px-5 py-8">
+        <div className="relative mx-auto w-full max-w-xl px-5 py-8">
           <ExitButton />
           <div className="mt-4 text-center">
             <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-amber-300/80">
               Round over
             </p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight">
-              {correct.length} correct
+            <h1 className="mt-2 text-4xl font-bold tracking-tight">
+              {correct.length}
+              <span className="text-zinc-500"> / </span>
+              {correct.length + skipped.length}
             </h1>
-            <p className="mt-1 text-sm text-zinc-400">
-              {actorName.trim() || "Player"} · {categoryLabel} · {roundSeconds}s
-            </p>
+            <p className="mt-1 text-sm text-zinc-400">words correct</p>
           </div>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -431,7 +637,7 @@ export default function CharadePage() {
                 Got it ({correct.length})
               </h2>
               {correct.length === 0 ? (
-                <p className="mt-3 text-sm text-zinc-500">None yet</p>
+                <p className="mt-3 text-sm text-zinc-500">None</p>
               ) : (
                 <ul className="mt-3 space-y-1.5">
                   {correct.map((w, i) => (
@@ -487,8 +693,12 @@ export default function CharadePage() {
     );
   }
 
-  // —— Ready / countdown / play (landscape preferred) ——
-  const showRotateGate = !landscape;
+  // —— Calibrate / countdown / play ——
+  const showRotateGate = !landscape && phase !== "calibrate";
+  const pitch = monitor.pitch;
+  const rest = restRef.current;
+  const gaugePct =
+    pitch == null ? 50 : Math.max(0, Math.min(100, (pitch / 180) * 100));
 
   return (
     <main
@@ -497,7 +707,11 @@ export default function CharadePage() {
           ? "bg-emerald-950"
           : flash === "skip"
             ? "bg-amber-950"
-            : ""
+            : calibFlash === "down"
+              ? "bg-emerald-950"
+              : calibFlash === "up"
+                ? "bg-amber-950"
+                : ""
       }`}
     >
       {showRotateGate && (
@@ -518,35 +732,228 @@ export default function CharadePage() {
         <div className="absolute -right-16 bottom-10 h-56 w-56 rounded-full bg-orange-500/10 blur-3xl" />
       </div>
 
-      {phase === "ready" && (
-        <div className="relative flex flex-1 flex-col px-6 py-4">
+      {phase === "calibrate" && (
+        <div className="relative flex flex-1 flex-col overflow-y-auto px-5 py-4">
           <ExitButton />
-          <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-amber-300/80">
-              Get ready
+
+          <div className="mx-auto flex w-full max-w-xl flex-1 flex-col">
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.28em] text-amber-300/80">
+              Calibrate
             </p>
-            <h1 className="max-w-lg text-3xl font-bold tracking-tight sm:text-4xl">
-              Put the phone on your forehead
+            <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
+              Teach your phone the nods
             </h1>
-            <p className="max-w-md text-sm text-zinc-400">
-              {actorName.trim()
-                ? `${actorName.trim()} acts — everyone else gives clues.`
-                : "Friends give clues. You tilt to answer."}
+            <p className="mt-2 text-sm text-zinc-400">
+              Hold it on your forehead like you will in the game. We&apos;ll
+              learn your down and up angles.
             </p>
-            <p className="text-xs text-zinc-500">
-              ↓ tilt down = correct · ↑ tilt up = skip
-            </p>
-            <p className="max-w-sm text-xs text-zinc-600">
-              Give a clear nod — small twitches are ignored. On iPhone, tap
-              Allow for motion access.
-            </p>
-            <TapButton
-              onPress={beginFromReady}
-              ariaLabel="I'm ready"
-              className="mt-2 rounded-2xl bg-amber-500 px-10 py-4 text-center text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(245,158,11,0.3)]"
-            >
-              I&apos;m ready
-            </TapButton>
+
+            {!sensorsOn ? (
+              <div className="mt-8 flex flex-1 flex-col items-center justify-center gap-4 text-center">
+                <p className="max-w-sm text-sm text-zinc-400">
+                  Allow motion access, then tilt down three times and up three
+                  times.
+                </p>
+                <TapButton
+                  onPress={beginCalibration}
+                  ariaLabel="Start calibration"
+                  className="rounded-2xl bg-amber-500 px-10 py-4 text-center text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(245,158,11,0.3)]"
+                >
+                  Start calibration
+                </TapButton>
+                <TapButton
+                  onPress={() => {
+                    setMotionOk(false);
+                    setCountdown(3);
+                    setPhase("countdown");
+                  }}
+                  ariaLabel="Skip and use buttons only"
+                  className="text-sm text-zinc-500 underline-offset-2 hover:text-zinc-300"
+                >
+                  Skip — use buttons only
+                </TapButton>
+              </div>
+            ) : (
+              <>
+                {/* Live monitor */}
+                <section className="mt-5 rounded-3xl bg-zinc-900/80 p-4 ring-1 ring-white/10">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                      Tilt monitor
+                    </h2>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+                        monitor.zone === "down"
+                          ? "bg-emerald-500/20 text-emerald-300"
+                          : monitor.zone === "up"
+                            ? "bg-amber-500/20 text-amber-300"
+                            : "bg-zinc-800 text-zinc-400"
+                      }`}
+                    >
+                      {monitor.zone}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                        Pitch
+                      </p>
+                      <p className="font-mono text-4xl font-bold tabular-nums text-zinc-50">
+                        {pitch == null ? "—" : `${pitch.toFixed(0)}°`}
+                      </p>
+                    </div>
+                    <div className="text-right font-mono text-xs text-zinc-500 tabular-nums">
+                      <p>
+                        β{" "}
+                        {monitor.beta == null ? "—" : monitor.beta.toFixed(0)}
+                      </p>
+                      <p>
+                        γ{" "}
+                        {monitor.gamma == null
+                          ? "—"
+                          : monitor.gamma.toFixed(0)}
+                      </p>
+                      <p>
+                        rest{" "}
+                        {rest == null ? "…" : `${rest.toFixed(0)}°`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="relative mt-4 h-3 overflow-hidden rounded-full bg-zinc-950 ring-1 ring-white/8">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full bg-linear-to-r from-emerald-500 via-zinc-500 to-amber-400 transition-[width] duration-75"
+                      style={{ width: `${gaugePct}%` }}
+                    />
+                    {rest != null && (
+                      <span
+                        className="absolute top-1/2 h-4 w-0.5 -translate-y-1/2 bg-white/80"
+                        style={{
+                          left: `${Math.max(0, Math.min(100, (rest / 180) * 100))}%`,
+                        }}
+                      />
+                    )}
+                  </div>
+                  <div className="mt-1 flex justify-between text-[10px] uppercase tracking-wide text-zinc-600">
+                    <span>↓ floor</span>
+                    <span>rest</span>
+                    <span>ceiling ↑</span>
+                  </div>
+
+                  {!motionOk && (
+                    <p className="mt-3 text-xs text-rose-300">
+                      No sensor data yet — try HTTPS, or skip and use buttons.
+                    </p>
+                  )}
+                </section>
+
+                {/* Progress */}
+                <section className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div
+                    className={`rounded-3xl p-4 ring-1 ${
+                      calibStep === "down"
+                        ? "bg-emerald-500/10 ring-emerald-400/40"
+                        : "bg-zinc-900/70 ring-white/8"
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-emerald-300">
+                      ↓ Tilt down
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Toward the floor (correct)
+                    </p>
+                    <div className="mt-3">
+                      <DotRow
+                        filled={downCount}
+                        total={CALIB_NEED}
+                        color="bg-emerald-400 ring-emerald-300/50"
+                      />
+                    </div>
+                  </div>
+                  <div
+                    className={`rounded-3xl p-4 ring-1 ${
+                      calibStep === "up"
+                        ? "bg-amber-500/10 ring-amber-400/40"
+                        : "bg-zinc-900/70 ring-white/8"
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-amber-300">
+                      ↑ Tilt up
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Toward the ceiling (skip)
+                    </p>
+                    <div className="mt-3">
+                      <DotRow
+                        filled={upCount}
+                        total={CALIB_NEED}
+                        color="bg-amber-400 ring-amber-300/50"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <div className="mt-5 flex flex-1 flex-col items-center justify-center text-center">
+                  {calibStep === "down" && (
+                    <>
+                      <p className="text-5xl" aria-hidden>
+                        ↓
+                      </p>
+                      <h2 className="mt-2 text-xl font-bold">
+                        Tilt down {CALIB_NEED} times
+                      </h2>
+                      <p className="mt-2 max-w-sm text-sm text-zinc-400">
+                        Nod toward the floor, then return to center. Repeat.
+                      </p>
+                    </>
+                  )}
+                  {calibStep === "up" && (
+                    <>
+                      <p className="text-5xl" aria-hidden>
+                        ↑
+                      </p>
+                      <h2 className="mt-2 text-xl font-bold">
+                        Tilt up {CALIB_NEED} times
+                      </h2>
+                      <p className="mt-2 max-w-sm text-sm text-zinc-400">
+                        Nod toward the ceiling, then return to center. Repeat.
+                      </p>
+                    </>
+                  )}
+                  {calibStep === "done" && calibRef.current && (
+                    <>
+                      <p className="text-4xl" aria-hidden>
+                        ✓
+                      </p>
+                      <h2 className="mt-2 text-xl font-bold">Calibrated</h2>
+                      <p className="mt-2 font-mono text-xs text-zinc-500 tabular-nums">
+                        rest {calibRef.current.rest.toFixed(0)}° · down{" "}
+                        {calibRef.current.down.toFixed(0)}° · up{" "}
+                        {calibRef.current.up.toFixed(0)}°
+                      </p>
+                      <TapButton
+                        onPress={beginGame}
+                        ariaLabel="I'm ready"
+                        className="mt-6 rounded-2xl bg-amber-500 px-10 py-4 text-center text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(245,158,11,0.3)]"
+                      >
+                        I&apos;m ready
+                      </TapButton>
+                      <TapButton
+                        onPress={() => {
+                          resetCalibration();
+                          setSensorsOn(true);
+                        }}
+                        ariaLabel="Recalibrate"
+                        className="mt-3 text-sm text-zinc-500"
+                      >
+                        Recalibrate
+                      </TapButton>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -607,9 +1014,9 @@ export default function CharadePage() {
             )}
             <p className="mt-6 text-xs text-zinc-500">
               ↓ correct · ↑ skip
-              {motionOk
-                ? " · nod clearly past the dead zone"
-                : " · tilt unavailable — use buttons"}
+              {motionOk && calibRef.current
+                ? " · using your calibration"
+                : " · use buttons"}
             </p>
           </div>
 
