@@ -402,8 +402,8 @@ export default function TicTacToePage() {
   const currentName = names[turn];
   const xLabel = markGlyph("X", markStyle, emojiPair);
   const oLabel = markGlyph("O", markStyle, emojiPair);
-  const displayTime = Math.ceil(timeLeft);
-  const timerUrgent = !ended && displayTime <= 3;
+  const displayTime = timeLeft.toFixed(1);
+  const timerUrgent = !ended && timeLeft <= 3;
   const timerProgress = Math.max(0, timeLeft / matchSeconds);
 
   return (
@@ -453,7 +453,7 @@ export default function TicTacToePage() {
                 timerUrgent ? "text-rose-300" : "text-emerald-300"
               }`}
             >
-              {ended && winReason === "timeout" ? "0" : ended ? "—" : displayTime}
+              {ended && winReason === "timeout" ? "0.0" : ended ? "—" : displayTime}
             </p>
           </div>
           {!ended && (
