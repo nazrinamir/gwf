@@ -40,7 +40,7 @@ export const GAMES: GameMenuItem[] = [
     // Board sits mid-frame; shift crop so it shows above the text fade.
     imagePosition: "object-[center_68%]",
     tag: "2 players",
-    blurb: "Keep 3 marks · oldest fades away",
+    blurb: "Keep 3 marks · race the clock",
     hoverRing: "group-hover:ring-emerald-400/70",
     accent: "emerald",
   },

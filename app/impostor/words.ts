@@ -472,6 +472,8 @@ export const CATEGORIES: Category[] = [
       { word: "Penanda denai", hints: ["Ragu", "Cari", "Cat", "Legar"] },
       { word: "Pacak", hints: ["Nafas", "Lutut", "Peluh", "Perlahan"] },
       { word: "Landai", hints: ["Santai", "Langkah", "Senang", "Tenang"] },
+      { word: "Pacak", hints: ["Nafas", "Lutut", "Peluh", "Perlahan"] },
+      { word: "Landai", hints: ["Santai", "Langkah", "Senang", "Tenang"] },
     ],
   },
 ];
