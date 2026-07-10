@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import TapButton from "../ui/tap-button";
 
 type Particle = {
   x: number;
@@ -131,7 +132,7 @@ export default function WinModal({
       <button
         type="button"
         aria-label="Close"
-        className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+        className="absolute inset-0 cursor-pointer border-0 bg-black/75 backdrop-blur-sm"
         onClick={onClose}
       />
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -139,14 +140,13 @@ export default function WinModal({
       </div>
 
       <div className="relative z-10 w-full max-w-sm overflow-hidden rounded-3xl bg-linear-to-br from-emerald-950/80 via-zinc-900 to-zinc-950 p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.55)] ring-1 ring-emerald-400/30 animate-rise">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-zinc-950/60 text-lg text-zinc-400 ring-1 ring-white/10 transition hover:bg-zinc-800 hover:text-zinc-100"
+        <TapButton
+          onPress={onClose}
+          ariaLabel="Close"
+          className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-zinc-950/60 text-lg text-zinc-400 ring-1 ring-white/10"
         >
           ×
-        </button>
+        </TapButton>
 
         <div className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-emerald-500/25 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-14 -left-10 h-32 w-32 rounded-full bg-teal-500/15 blur-3xl" />
@@ -166,13 +166,13 @@ export default function WinModal({
           </h2>
           <p className="mt-2 text-sm text-zinc-400">Three in a row!</p>
 
-          <button
-            type="button"
-            onClick={onPlayAgain}
-            className="mt-6 w-full rounded-2xl bg-emerald-500 py-3.5 text-sm font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(16,185,129,0.35)] transition hover:bg-emerald-400"
+          <TapButton
+            onPress={onPlayAgain}
+            ariaLabel="Play again"
+            className="mt-6 w-full rounded-2xl bg-emerald-500 py-3.5 text-center text-sm font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(16,185,129,0.35)]"
           >
             Play again
-          </button>
+          </TapButton>
         </div>
       </div>
     </div>

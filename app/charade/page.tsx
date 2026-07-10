@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ExitButton from "../ui/exit-button";
+import TapButton from "../ui/tap-button";
 import { CATEGORIES, type Category } from "../impostor/words";
 
 type Phase = "setup" | "ready" | "countdown" | "play" | "results";
 type Flash = "correct" | "skip" | null;
 
 const ROUND_OPTIONS = [30, 60, 90] as const;
-const TILT_TRIGGER = 32;
-const TILT_NEUTRAL = 14;
+/** Degrees away from calibrated forehead rest before a tilt counts. */
+const TILT_TRIGGER = 28;
+/** Must return this close to rest before the next tilt can fire. */
+const TILT_NEUTRAL = 12;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -27,6 +30,44 @@ function buildDeck(categoryId: string): string[] {
       : CATEGORIES.filter((c) => c.id === categoryId);
   const words = cats.flatMap((c) => c.words.map((w) => w.word));
   return shuffle(words);
+}
+
+function screenAngle(): number {
+  if (typeof screen !== "undefined" && screen.orientation?.angle != null) {
+    return screen.orientation.angle;
+  }
+  if (typeof window.orientation === "number") return window.orientation;
+  return 0;
+}
+
+/**
+ * Nod axis for forehead play.
+ * Landscape: gamma (sign flipped for the other landscape direction).
+ * Portrait: beta (0 flat, ~90 upright on forehead).
+ */
+function nodFromOrientation(e: DeviceOrientationEvent): number | null {
+  const angle = ((screenAngle() % 360) + 360) % 360;
+  const landscape = angle === 90 || angle === 270;
+
+  if (landscape) {
+    if (e.gamma == null) return null;
+    // 90° and 270° flip which way is "up".
+    return angle === 90 ? e.gamma : -e.gamma;
+  }
+  if (e.beta == null) return null;
+  return e.beta;
+}
+
+/** Gravity-based nod — often more reliable than orientation angles. */
+function nodFromMotion(e: DeviceMotionEvent): number | null {
+  const g = e.accelerationIncludingGravity;
+  if (!g || g.x == null || g.y == null || g.z == null) return null;
+  const angle = ((screenAngle() % 360) + 360) % 360;
+  // Pick the axis that tracks forehead nod in the current orientation.
+  if (angle === 90) return g.x;
+  if (angle === 270) return -g.x;
+  // Portrait / near-portrait: Y is up the screen.
+  return g.y;
 }
 
 function useLandscape(): boolean {
@@ -62,6 +103,11 @@ export default function CharadePage() {
   phaseRef.current = phase;
   const currentWordRef = useRef("");
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Calibrated resting nod while phone is on the forehead. */
+  const baselineRef = useRef<number | null>(null);
+  const baselineSamples = useRef<number[]>([]);
+  /** Prefer orientation degrees; fall back to gravity units. */
+  const useGravityRef = useRef(false);
 
   const currentWord = deck[deckIndex] ?? "";
   currentWordRef.current = currentWord;
@@ -116,9 +162,18 @@ export default function CharadePage() {
       const DOE = DeviceOrientationEvent as unknown as {
         requestPermission?: () => Promise<"granted" | "denied">;
       };
+      const DME = DeviceMotionEvent as unknown as {
+        requestPermission?: () => Promise<"granted" | "denied">;
+      };
+
       if (typeof DOE.requestPermission === "function") {
         const result = await DOE.requestPermission();
-        return result === "granted";
+        if (result !== "granted") return false;
+      }
+      // iOS also gates DeviceMotion behind its own prompt.
+      if (typeof DME.requestPermission === "function") {
+        const result = await DME.requestPermission();
+        if (result !== "granted") return false;
       }
       return true;
     } catch {
@@ -137,6 +192,9 @@ export default function CharadePage() {
     setFlash(null);
     armedRef.current = true;
     cooldownRef.current = false;
+    baselineRef.current = null;
+    baselineSamples.current = [];
+    useGravityRef.current = false;
     setPhase("ready");
   }
 
@@ -172,41 +230,89 @@ export default function CharadePage() {
     return () => clearInterval(id);
   }, [phase, roundSeconds]);
 
-  // Tilt: down = correct, up = skip (beta when landscape)
+  // Tilt: down = correct, up = skip (calibrated to forehead rest pose)
   useEffect(() => {
     if (phase !== "play" || !motionOk) return;
 
-    const onOrient = (e: DeviceOrientationEvent) => {
+    baselineRef.current = null;
+    baselineSamples.current = [];
+    armedRef.current = false; // wait until calibrated + near rest
+    useGravityRef.current = false;
+
+    let gotOrientation = false;
+    let gotMotion = false;
+
+    const handleNod = (raw: number, mode: "orient" | "gravity") => {
       if (phaseRef.current !== "play" || cooldownRef.current) return;
 
-      // Prefer beta (front/back). Fall back to gamma if beta is null.
-      const tilt =
-        e.beta != null
-          ? e.beta
-          : e.gamma != null
-            ? e.gamma
-            : null;
-      if (tilt == null) return;
+      // Prefer orientation once we have it; ignore gravity after that.
+      if (mode === "gravity" && gotOrientation) return;
+      if (mode === "orient") {
+        gotOrientation = true;
+        useGravityRef.current = false;
+      } else {
+        gotMotion = true;
+        if (!gotOrientation) useGravityRef.current = true;
+      }
 
-      // Phone on forehead in landscape: positive beta ≈ tilt up (skip),
-      // negative / low beta ≈ tilt down toward floor (correct).
-      // Also handle inverted holds by checking absolute extremes.
+      const trigger = useGravityRef.current ? 4.5 : TILT_TRIGGER;
+      const neutral = useGravityRef.current ? 2 : TILT_NEUTRAL;
+
+      // Calibrate resting forehead pose from the first stable samples.
+      if (baselineRef.current == null) {
+        baselineSamples.current.push(raw);
+        if (baselineSamples.current.length < 8) return;
+        const samples = baselineSamples.current;
+        const avg = samples.reduce((s, n) => s + n, 0) / samples.length;
+        baselineRef.current = avg;
+        armedRef.current = true;
+        return;
+      }
+
+      const delta = raw - baselineRef.current;
+
       if (!armedRef.current) {
-        if (Math.abs(tilt) < TILT_NEUTRAL) {
+        if (Math.abs(delta) < neutral) {
           armedRef.current = true;
         }
         return;
       }
 
-      if (tilt <= -TILT_TRIGGER) {
+      // Positive delta = tilt up (skip); negative = tilt down (correct).
+      if (delta <= -trigger) {
         resolveAnswer("correct");
-      } else if (tilt >= TILT_TRIGGER) {
+      } else if (delta >= trigger) {
         resolveAnswer("skip");
       }
     };
 
+    const onOrient = (e: DeviceOrientationEvent) => {
+      const nod = nodFromOrientation(e);
+      if (nod == null) return;
+      handleNod(nod, "orient");
+    };
+
+    const onMotion = (e: DeviceMotionEvent) => {
+      const nod = nodFromMotion(e);
+      if (nod == null) return;
+      handleNod(nod, "gravity");
+    };
+
     window.addEventListener("deviceorientation", onOrient);
-    return () => window.removeEventListener("deviceorientation", onOrient);
+    window.addEventListener("devicemotion", onMotion);
+
+    // If nothing arrives (HTTP / denied / desktop), fall back to buttons.
+    const probe = window.setTimeout(() => {
+      if (!gotOrientation && !gotMotion) {
+        setMotionOk(false);
+      }
+    }, 2000);
+
+    return () => {
+      window.clearTimeout(probe);
+      window.removeEventListener("deviceorientation", onOrient);
+      window.removeEventListener("devicemotion", onMotion);
+    };
   }, [phase, motionOk, resolveAnswer]);
 
   useEffect(() => {
@@ -219,29 +325,22 @@ export default function CharadePage() {
   if (phase === "setup") {
     return (
       <main className="relative flex flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-20 top-10 h-64 w-64 rounded-full bg-amber-500/20 blur-3xl" />
-          <div className="absolute -right-16 top-48 h-56 w-56 rounded-full bg-orange-500/10 blur-3xl" />
-        </div>
-        <div className="relative mx-auto w-full max-w-xl flex-1 px-5 py-8">
+        <div className="relative z-10 mx-auto flex w-full max-w-xl flex-1 flex-col overflow-y-auto overscroll-contain px-5 py-8">
           <ExitButton />
-          <div className="relative mt-4 overflow-hidden rounded-3xl bg-linear-to-br from-amber-950/50 via-zinc-900 to-zinc-950 p-5 ring-1 ring-amber-500/25">
-            <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-amber-500/20 blur-2xl" />
-            <div className="relative">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-amber-300/80">
-                Party game
-              </p>
-              <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-50">
-                Charade
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                Phone on your forehead. Friends give clues. Tilt down when
-                you&apos;ve got it — tilt up to skip.
-              </p>
-            </div>
+          <div className="relative mt-4 rounded-3xl bg-linear-to-br from-amber-950/50 via-zinc-900 to-zinc-950 p-5 ring-1 ring-amber-500/25">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-amber-300/80">
+              Party game
+            </p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-50">
+              Charade
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+              Phone on your forehead. Friends give clues. Tilt down when
+              you&apos;ve got it — tilt up to skip.
+            </p>
           </div>
 
-          <div className="mt-5 space-y-4">
+          <div className="mt-5 space-y-4 pb-4">
             <section className="space-y-3 rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
               <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
                 Who&apos;s acting
@@ -260,36 +359,38 @@ export default function CharadePage() {
                 Category
               </h2>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCategoryId("any")}
-                  className={`rounded-2xl px-3 py-3 text-left ring-1 transition ${
+                <TapButton
+                  onPress={() => setCategoryId("any")}
+                  ariaLabel="Any category"
+                  className={`rounded-2xl px-3 py-3 text-left ring-1 ${
                     categoryId === "any"
                       ? "bg-amber-500/15 ring-amber-400/50"
-                      : "bg-zinc-950/50 ring-white/10 hover:ring-white/20"
+                      : "bg-zinc-950/50 ring-white/10"
                   }`}
                 >
-                  <p className="text-base font-semibold">🎲 Any</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">All categories</p>
-                </button>
+                  <span className="block text-base font-semibold">🎲 Any</span>
+                  <span className="mt-0.5 block text-xs text-zinc-500">
+                    All categories
+                  </span>
+                </TapButton>
                 {CATEGORIES.map((cat) => (
-                  <button
+                  <TapButton
                     key={cat.id}
-                    type="button"
-                    onClick={() => setCategoryId(cat.id)}
-                    className={`rounded-2xl px-3 py-3 text-left ring-1 transition ${
+                    onPress={() => setCategoryId(cat.id)}
+                    ariaLabel={cat.name}
+                    className={`rounded-2xl px-3 py-3 text-left ring-1 ${
                       categoryId === cat.id
                         ? "bg-amber-500/15 ring-amber-400/50"
-                        : "bg-zinc-950/50 ring-white/10 hover:ring-white/20"
+                        : "bg-zinc-950/50 ring-white/10"
                     }`}
                   >
-                    <p className="text-base font-semibold">
+                    <span className="block text-base font-semibold">
                       {cat.emoji} {cat.name}
-                    </p>
-                    <p className="mt-0.5 text-xs text-zinc-500">
+                    </span>
+                    <span className="mt-0.5 block text-xs text-zinc-500">
                       {cat.words.length} words
-                    </p>
-                  </button>
+                    </span>
+                  </TapButton>
                 ))}
               </div>
             </section>
@@ -300,18 +401,18 @@ export default function CharadePage() {
               </h2>
               <div className="grid grid-cols-3 gap-2">
                 {ROUND_OPTIONS.map((sec) => (
-                  <button
+                  <TapButton
                     key={sec}
-                    type="button"
-                    onClick={() => setRoundSeconds(sec)}
-                    className={`rounded-2xl py-3 text-sm font-semibold ring-1 transition ${
+                    onPress={() => setRoundSeconds(sec)}
+                    ariaLabel={`${sec} seconds`}
+                    className={`rounded-2xl py-3 text-center text-sm font-semibold ring-1 ${
                       roundSeconds === sec
                         ? "bg-amber-500/15 text-amber-200 ring-amber-400/50"
-                        : "bg-zinc-950/50 text-zinc-300 ring-white/10 hover:ring-white/20"
+                        : "bg-zinc-950/50 text-zinc-300 ring-white/10"
                     }`}
                   >
                     {sec}s
-                  </button>
+                  </TapButton>
                 ))}
               </div>
             </section>
@@ -327,14 +428,18 @@ export default function CharadePage() {
                 <li>4. See your score and every word at the end.</li>
               </ul>
             </section>
+          </div>
+        </div>
 
-            <button
-              type="button"
-              onClick={startRound}
-              className="w-full rounded-2xl bg-amber-500 py-4 text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(245,158,11,0.3)] transition hover:bg-amber-400 active:scale-[0.99]"
+        <div className="relative z-20 shrink-0 border-t border-white/10 bg-zinc-950 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="mx-auto w-full max-w-xl">
+            <TapButton
+              onPress={startRound}
+              ariaLabel="Start round"
+              className="w-full rounded-2xl bg-amber-500 py-4 text-center text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(245,158,11,0.3)]"
             >
               Start round
-            </button>
+            </TapButton>
           </div>
         </div>
       </main>
@@ -404,20 +509,20 @@ export default function CharadePage() {
           </div>
 
           <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-            <button
-              type="button"
-              onClick={startRound}
-              className="flex-1 rounded-2xl bg-amber-500 py-3.5 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400"
+            <TapButton
+              onPress={startRound}
+              ariaLabel="Play again"
+              className="flex-1 rounded-2xl bg-amber-500 py-3.5 text-center text-sm font-semibold text-zinc-950"
             >
               Play again
-            </button>
-            <button
-              type="button"
-              onClick={() => setPhase("setup")}
-              className="flex-1 rounded-2xl bg-zinc-800 py-3.5 text-sm font-semibold text-zinc-200 ring-1 ring-white/8 transition hover:bg-zinc-700"
+            </TapButton>
+            <TapButton
+              onPress={() => setPhase("setup")}
+              ariaLabel="Change setup"
+              className="flex-1 rounded-2xl bg-zinc-800 py-3.5 text-center text-sm font-semibold text-zinc-200 ring-1 ring-white/8"
             >
               Change setup
-            </button>
+            </TapButton>
           </div>
         </div>
       </main>
@@ -473,13 +578,17 @@ export default function CharadePage() {
             <p className="text-xs text-zinc-500">
               ↓ tilt down = correct · ↑ tilt up = skip
             </p>
-            <button
-              type="button"
-              onClick={beginFromReady}
-              className="mt-2 rounded-2xl bg-amber-500 px-10 py-4 text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(245,158,11,0.3)] transition hover:bg-amber-400"
+            <p className="max-w-sm text-xs text-zinc-600">
+              Hold still on your forehead for a moment so it can calibrate. On
+              iPhone, tap Allow for motion access.
+            </p>
+            <TapButton
+              onPress={beginFromReady}
+              ariaLabel="I'm ready"
+              className="mt-2 rounded-2xl bg-amber-500 px-10 py-4 text-center text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(245,158,11,0.3)]"
             >
               I&apos;m ready
-            </button>
+            </TapButton>
           </div>
         </div>
       )}
@@ -540,25 +649,27 @@ export default function CharadePage() {
             )}
             <p className="mt-6 text-xs text-zinc-500">
               ↓ correct · ↑ skip
-              {!motionOk && " · use buttons if tilt isn't available"}
+              {motionOk
+                ? " · hold still briefly to calibrate"
+                : " · tilt unavailable — use buttons"}
             </p>
           </div>
 
           <div className="flex gap-3 pb-2">
-            <button
-              type="button"
-              onClick={() => resolveAnswer("skip")}
-              className="flex-1 rounded-2xl bg-zinc-900 py-4 text-base font-semibold text-amber-200 ring-1 ring-amber-400/30 transition hover:bg-zinc-800"
+            <TapButton
+              onPress={() => resolveAnswer("skip")}
+              ariaLabel="Skip"
+              className="flex-1 rounded-2xl bg-zinc-900 py-4 text-center text-base font-semibold text-amber-200 ring-1 ring-amber-400/30"
             >
               ↑ Skip
-            </button>
-            <button
-              type="button"
-              onClick={() => resolveAnswer("correct")}
-              className="flex-1 rounded-2xl bg-emerald-500/90 py-4 text-base font-semibold text-zinc-950 transition hover:bg-emerald-400"
+            </TapButton>
+            <TapButton
+              onPress={() => resolveAnswer("correct")}
+              ariaLabel="Correct"
+              className="flex-1 rounded-2xl bg-emerald-500/90 py-4 text-center text-base font-semibold text-zinc-950"
             >
               ↓ Correct
-            </button>
+            </TapButton>
           </div>
         </div>
       )}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ExitButton from "../ui/exit-button";
+import TapButton from "../ui/tap-button";
 import WinModal from "./win-modal";
 
 type Mark = "X" | "O";
@@ -216,29 +217,22 @@ export default function TicTacToePage() {
   if (!started) {
     return (
       <main className="relative flex flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-20 top-10 h-64 w-64 rounded-full bg-emerald-500/20 blur-3xl" />
-          <div className="absolute -right-16 top-48 h-56 w-56 rounded-full bg-teal-500/10 blur-3xl" />
-        </div>
-        <div className="relative mx-auto w-full max-w-xl flex-1 px-5 py-8">
+        <div className="relative z-10 mx-auto flex w-full max-w-xl flex-1 flex-col overflow-y-auto overscroll-contain px-5 py-8">
           <ExitButton />
-          <div className="relative mt-4 overflow-hidden rounded-3xl bg-linear-to-br from-emerald-950/50 via-zinc-900 to-zinc-950 p-5 ring-1 ring-emerald-500/25">
-            <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-emerald-500/20 blur-2xl" />
-            <div className="relative">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-emerald-300/80">
-                2 players
-              </p>
-              <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-50">
-                BliTTTz
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                Keep up to three marks. When you place a fourth, your oldest
-                vanishes — get three in a row before it slips away.
-              </p>
-            </div>
+          <div className="relative mt-4 rounded-3xl bg-linear-to-br from-emerald-950/50 via-zinc-900 to-zinc-950 p-5 ring-1 ring-emerald-500/25">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-emerald-300/80">
+              2 players
+            </p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-50">
+              BliTTTz
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+              Keep up to three marks. When you place a fourth, your oldest
+              vanishes — get three in a row before it slips away.
+            </p>
           </div>
 
-          <div className="mt-5 space-y-4">
+          <div className="mt-5 space-y-4 pb-4">
             <section className="space-y-3 rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
               <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
                 Players
@@ -283,18 +277,18 @@ export default function TicTacToePage() {
                 {MATCH_SECONDS_OPTIONS.map((sec) => {
                   const selected = matchSeconds === sec;
                   return (
-                    <button
+                    <TapButton
                       key={sec}
-                      type="button"
-                      onClick={() => setMatchSeconds(sec)}
-                      className={`rounded-2xl py-3 text-sm font-semibold ring-1 transition ${
+                      onPress={() => setMatchSeconds(sec)}
+                      ariaLabel={`${sec} seconds`}
+                      className={`rounded-2xl py-3 text-center text-sm font-semibold ring-1 ${
                         selected
                           ? "bg-emerald-500/15 text-emerald-200 ring-emerald-400/50"
-                          : "bg-zinc-950/50 text-zinc-300 ring-white/10 hover:ring-white/20"
+                          : "bg-zinc-950/50 text-zinc-300 ring-white/10"
                       }`}
                     >
                       {sec}s
-                    </button>
+                    </TapButton>
                   );
                 })}
               </div>
@@ -305,37 +299,37 @@ export default function TicTacToePage() {
                 Marks
               </h2>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMarkStyle("classic")}
-                  className={`rounded-2xl px-3 py-3 text-left ring-1 transition ${
+                <TapButton
+                  onPress={() => setMarkStyle("classic")}
+                  ariaLabel="Classic marks"
+                  className={`rounded-2xl px-3 py-3 text-left ring-1 ${
                     markStyle === "classic"
                       ? "bg-emerald-500/15 ring-emerald-400/50"
-                      : "bg-zinc-950/50 ring-white/10 hover:ring-white/20"
+                      : "bg-zinc-950/50 ring-white/10"
                   }`}
                 >
-                  <p className="text-lg font-bold tracking-wide text-zinc-100">
+                  <span className="block text-lg font-bold tracking-wide text-zinc-100">
                     <span className="text-emerald-300">X</span>
                     <span className="mx-1.5 text-zinc-600">·</span>
                     <span className="text-teal-300">O</span>
-                  </p>
-                  <p className="mt-1 text-xs text-zinc-500">Classic</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMarkStyle("emoji")}
-                  className={`rounded-2xl px-3 py-3 text-left ring-1 transition ${
+                  </span>
+                  <span className="mt-1 block text-xs text-zinc-500">Classic</span>
+                </TapButton>
+                <TapButton
+                  onPress={() => setMarkStyle("emoji")}
+                  ariaLabel="Emoji marks"
+                  className={`rounded-2xl px-3 py-3 text-left ring-1 ${
                     markStyle === "emoji"
                       ? "bg-emerald-500/15 ring-emerald-400/50"
-                      : "bg-zinc-950/50 ring-white/10 hover:ring-white/20"
+                      : "bg-zinc-950/50 ring-white/10"
                   }`}
                 >
-                  <p className="text-lg leading-none">
+                  <span className="block text-lg leading-none">
                     {EMOJI_PAIRS.find((p) => p.id === emojiPair)?.X}{" "}
                     {EMOJI_PAIRS.find((p) => p.id === emojiPair)?.O}
-                  </p>
-                  <p className="mt-1 text-xs text-zinc-500">Emoji</p>
-                </button>
+                  </span>
+                  <span className="mt-1 block text-xs text-zinc-500">Emoji</span>
+                </TapButton>
               </div>
 
               {markStyle === "emoji" && (
@@ -343,14 +337,14 @@ export default function TicTacToePage() {
                   {EMOJI_PAIRS.map((pair) => {
                     const selected = emojiPair === pair.id;
                     return (
-                      <button
+                      <TapButton
                         key={pair.id}
-                        type="button"
-                        onClick={() => setEmojiPair(pair.id)}
-                        className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left ring-1 transition ${
+                        onPress={() => setEmojiPair(pair.id)}
+                        ariaLabel={pair.label}
+                        className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left ring-1 ${
                           selected
                             ? "bg-emerald-500/15 ring-emerald-400/50"
-                            : "bg-zinc-950/40 ring-white/8 hover:ring-white/20"
+                            : "bg-zinc-950/40 ring-white/8"
                         }`}
                       >
                         <span className="text-xl leading-none">
@@ -359,7 +353,7 @@ export default function TicTacToePage() {
                         <span className="text-xs text-zinc-400">
                           {pair.label}
                         </span>
-                      </button>
+                      </TapButton>
                     );
                   })}
                 </div>
@@ -385,14 +379,18 @@ export default function TicTacToePage() {
                 </li>
               </ul>
             </section>
+          </div>
+        </div>
 
-            <button
-              type="button"
-              onClick={startGame}
-              className="w-full rounded-2xl bg-emerald-500 py-4 text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(16,185,129,0.3)] transition hover:bg-emerald-400 active:scale-[0.99]"
+        <div className="relative z-20 shrink-0 border-t border-white/10 bg-zinc-950 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="mx-auto w-full max-w-xl">
+            <TapButton
+              onPress={startGame}
+              ariaLabel="Start game"
+              className="w-full rounded-2xl bg-emerald-500 py-4 text-center text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(16,185,129,0.3)]"
             >
               Start game
-            </button>
+            </TapButton>
           </div>
         </div>
       </main>
@@ -423,13 +421,13 @@ export default function TicTacToePage() {
             </p>
             <h1 className="text-2xl font-bold tracking-tight">BliTTTz</h1>
           </div>
-          <button
-            type="button"
-            onClick={playAgain}
-            className="rounded-full bg-zinc-900/70 px-3 py-1.5 text-xs font-semibold text-zinc-300 ring-1 ring-white/10 transition hover:bg-zinc-800"
+          <TapButton
+            onPress={playAgain}
+            ariaLabel="Reset board"
+            className="rounded-full bg-zinc-900/70 px-3 py-1.5 text-center text-xs font-semibold text-zinc-300 ring-1 ring-white/10"
           >
             Reset board
-          </button>
+          </TapButton>
         </div>
 
         <div
@@ -509,12 +507,12 @@ export default function TicTacToePage() {
                 winLine != null &&
                 (winLine[0] === i || winLine[1] === i || winLine[2] === i);
               return (
-                <button
+                <TapButton
                   key={i}
-                  type="button"
                   disabled={disabled}
-                  onClick={() => place(i)}
-                  className={`flex aspect-square items-center justify-center rounded-2xl ring-1 transition active:scale-[0.97] disabled:cursor-default ${
+                  onPress={() => place(i)}
+                  ariaLabel={`Cell ${i + 1}`}
+                  className={`flex aspect-square items-center justify-center rounded-2xl ring-1 transition active:scale-[0.97] ${
                     mark
                       ? inWin
                         ? "bg-zinc-900 ring-amber-400/50"
@@ -525,7 +523,7 @@ export default function TicTacToePage() {
                   }`}
                 >
                   {mark && renderMark(mark, isFading && !inWin)}
-                </button>
+                </TapButton>
               );
             })}
           </div>
@@ -643,13 +641,13 @@ export default function TicTacToePage() {
               <p className="mt-1 text-sm text-zinc-400">
                 No three in a row before the match timer ended
               </p>
-              <button
-                type="button"
-                onClick={playAgain}
-                className="mt-4 w-full rounded-2xl bg-emerald-500 py-3.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
+              <TapButton
+                onPress={playAgain}
+                ariaLabel="Play again"
+                className="mt-4 w-full rounded-2xl bg-emerald-500 py-3.5 text-center text-sm font-semibold text-zinc-950"
               >
                 Play again
-              </button>
+              </TapButton>
             </>
           ) : ended && winReason === "line" && winner ? (
             <>
@@ -662,21 +660,21 @@ export default function TicTacToePage() {
               <p className="mt-1 text-sm text-zinc-400">Three in a row</p>
               <div className="mt-4 flex gap-2">
                 {!showWinModal && (
-                  <button
-                    type="button"
-                    onClick={() => setShowWinModal(true)}
-                    className="flex-1 rounded-2xl bg-zinc-800 py-3.5 text-sm font-semibold text-zinc-200 ring-1 ring-white/8 transition hover:bg-zinc-700"
+                  <TapButton
+                    onPress={() => setShowWinModal(true)}
+                    ariaLabel="Celebrate"
+                    className="flex-1 rounded-2xl bg-zinc-800 py-3.5 text-center text-sm font-semibold text-zinc-200 ring-1 ring-white/8"
                   >
                     Celebrate
-                  </button>
+                  </TapButton>
                 )}
-                <button
-                  type="button"
-                  onClick={playAgain}
-                  className="flex-1 rounded-2xl bg-emerald-500 py-3.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
+                <TapButton
+                  onPress={playAgain}
+                  ariaLabel="Play again"
+                  className="flex-1 rounded-2xl bg-emerald-500 py-3.5 text-center text-sm font-semibold text-zinc-950"
                 >
                   Play again
-                </button>
+                </TapButton>
               </div>
             </>
           ) : (

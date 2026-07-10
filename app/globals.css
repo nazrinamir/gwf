@@ -40,8 +40,11 @@ select,
 }
 
 button:not(:disabled),
-a {
+a,
+input[type="button"],
+input[type="submit"] {
   cursor: pointer;
+  pointer-events: auto;
 }
 
 @keyframes float-slow {
