@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Game Night",
-  description: "One-device party games: Werewolf, Impostor, and Infinity TTT.",
+  description: "One-device party games: Werewolf, Impostor, BliTTTz, and Charade.",
 };
 
 export const viewport: Viewport = {

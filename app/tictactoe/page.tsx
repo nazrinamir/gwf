@@ -229,7 +229,7 @@ export default function TicTacToePage() {
                 2 players
               </p>
               <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-50">
-                Infinity TTT
+                BliTTTz
               </h1>
               <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                 Keep up to three marks. When you place a fourth, your oldest
@@ -421,7 +421,7 @@ export default function TicTacToePage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-emerald-300/80">
               Fading marks
             </p>
-            <h1 className="text-2xl font-bold tracking-tight">Infinity TTT</h1>
+            <h1 className="text-2xl font-bold tracking-tight">BliTTTz</h1>
           </div>
           <button
             type="button"

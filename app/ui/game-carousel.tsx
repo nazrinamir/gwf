@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GameMenuItem } from "../games";
@@ -26,6 +25,13 @@ const ACCENT = {
     cta: "bg-emerald-500 text-zinc-950 group-hover:bg-emerald-400",
     tag: "bg-emerald-500/15 text-emerald-200 ring-emerald-400/30",
     dot: "bg-emerald-400",
+  },
+  amber: {
+    glow: "shadow-[0_0_50px_rgba(245,158,11,0.28)]",
+    ring: "ring-amber-400/40",
+    cta: "bg-amber-500 text-zinc-950 group-hover:bg-amber-400",
+    tag: "bg-amber-500/15 text-amber-200 ring-amber-400/30",
+    dot: "bg-amber-400",
   },
 } as const;
 
@@ -92,7 +98,7 @@ export default function GameCarousel({ games }: { games: GameMenuItem[] }) {
             <Link
               key={game.href}
               href={game.href}
-              className={`group relative aspect-3/4 w-[82%] shrink-0 snap-center overflow-hidden rounded-[1.75rem] ring-1 transition-all duration-500 ease-out sm:w-[58%] ${
+              className={`group relative aspect-3/4 w-[82%] shrink-0 snap-center overflow-hidden rounded-[1.75rem] bg-zinc-900 ring-1 transition-all duration-500 ease-out sm:w-[58%] ${
                 game.hoverRing
               } ${
                 isActive
@@ -100,17 +106,15 @@ export default function GameCarousel({ games }: { games: GameMenuItem[] }) {
                   : "scale-[0.84] opacity-45 ring-white/10"
               }`}
             >
-              <Image
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={game.image}
                 alt={game.title}
-                fill
-                priority
-                sizes="(max-width: 640px) 82vw, 58vw"
-                className={`object-cover transition-transform duration-700 group-hover:scale-105 ${
-                  game.imagePosition ?? "object-center"
-                }`}
+                className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                style={{ objectPosition: game.imagePosition ?? "center" }}
+                draggable={false}
               />
-              <div className="absolute inset-0 bg-linear-to-t from-black via-black/50 to-transparent" />
+              <div className="absolute inset-0 bg-linear-to-t from-black via-black/45 to-transparent" />
               <div className="absolute inset-0 bg-linear-to-br from-white/5 via-transparent to-transparent opacity-60" />
 
               <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
