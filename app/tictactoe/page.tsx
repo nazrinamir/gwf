@@ -1,0 +1,412 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import ExitButton from "../ui/exit-button";
+
+type Mark = "X" | "O";
+type Cell = Mark | null;
+type MarkStyle = "classic" | "emoji";
+
+const WIN_LINES = [
+  [0, 1, 2],
+  [3, 4, 5],
+  [6, 7, 8],
+  [0, 3, 6],
+  [1, 4, 7],
+  [2, 5, 8],
+  [0, 4, 8],
+  [2, 4, 6],
+] as const;
+
+const EMOJI_PAIRS = [
+  { id: "xo", X: "❌", O: "⭕", label: "X / O" },
+  { id: "fire-ice", X: "🔥", O: "❄️", label: "Fire / Ice" },
+  { id: "cat-dog", X: "🐱", O: "🐶", label: "Cat / Dog" },
+  { id: "sun-moon", X: "☀️", O: "🌙", label: "Sun / Moon" },
+  { id: "hearts", X: "❤️", O: "💙", label: "Hearts" },
+] as const;
+
+type EmojiPairId = (typeof EMOJI_PAIRS)[number]["id"];
+
+function checkWinner(board: Cell[]): Mark | null {
+  for (const [a, b, c] of WIN_LINES) {
+    const v = board[a];
+    if (v && v === board[b] && v === board[c]) return v;
+  }
+  return null;
+}
+
+function emptyBoard(): Cell[] {
+  return Array.from({ length: 9 }, () => null);
+}
+
+function markGlyph(
+  mark: Mark,
+  style: MarkStyle,
+  pairId: EmojiPairId,
+): string {
+  if (style === "classic") return mark;
+  const pair = EMOJI_PAIRS.find((p) => p.id === pairId) ?? EMOJI_PAIRS[0];
+  return pair[mark];
+}
+
+export default function TicTacToePage() {
+  const [board, setBoard] = useState<Cell[]>(emptyBoard);
+  /** Placement order per player — oldest first. Max 3 marks after each turn. */
+  const [history, setHistory] = useState<Record<Mark, number[]>>({
+    X: [],
+    O: [],
+  });
+  const [turn, setTurn] = useState<Mark>("X");
+  const [winner, setWinner] = useState<Mark | null>(null);
+  const [names, setNames] = useState({ X: "Player X", O: "Player O" });
+  const [markStyle, setMarkStyle] = useState<MarkStyle>("classic");
+  const [emojiPair, setEmojiPair] = useState<EmojiPairId>("xo");
+  const [started, setStarted] = useState(false);
+
+  const fading = useMemo(() => {
+    const map: Partial<Record<number, Mark>> = {};
+    (["X", "O"] as Mark[]).forEach((m) => {
+      // With 3 marks on the board, the oldest is about to vanish next turn.
+      if (history[m].length === 3) {
+        map[history[m][0]!] = m;
+      }
+    });
+    return map;
+  }, [history]);
+
+  function resetBoard() {
+    setBoard(emptyBoard());
+    setHistory({ X: [], O: [] });
+    setTurn("X");
+    setWinner(null);
+  }
+
+  function startGame() {
+    resetBoard();
+    setStarted(true);
+  }
+
+  function playAgain() {
+    resetBoard();
+  }
+
+  function place(index: number) {
+    if (winner || board[index] != null) return;
+
+    const nextBoard = [...board];
+    const nextHistory = {
+      X: [...history.X],
+      O: [...history.O],
+    };
+    const mine = nextHistory[turn];
+
+    // Max 3 marks: placing a 4th removes the oldest so a win is still possible.
+    if (mine.length >= 3) {
+      const oldest = mine.shift()!;
+      nextBoard[oldest] = null;
+    }
+
+    nextBoard[index] = turn;
+    mine.push(index);
+
+    const win = checkWinner(nextBoard);
+    setBoard(nextBoard);
+    setHistory(nextHistory);
+    if (win) {
+      setWinner(win);
+      return;
+    }
+    setTurn(turn === "X" ? "O" : "X");
+  }
+
+  function renderMark(mark: Mark, isFading: boolean) {
+    const glyph = markGlyph(mark, markStyle, emojiPair);
+    const isEmoji = markStyle === "emoji";
+    return (
+      <span
+        className={`inline-block ${
+          isEmoji
+            ? "text-[2.35rem] leading-none sm:text-[2.75rem]"
+            : `text-4xl font-bold sm:text-5xl ${
+                mark === "X" ? "text-emerald-300" : "text-teal-300"
+              }`
+        } ${isFading ? "animate-mark-blink" : ""}`}
+      >
+        {glyph}
+      </span>
+    );
+  }
+
+  if (!started) {
+    return (
+      <main className="relative flex flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-20 top-10 h-64 w-64 rounded-full bg-emerald-500/20 blur-3xl" />
+          <div className="absolute -right-16 top-48 h-56 w-56 rounded-full bg-teal-500/10 blur-3xl" />
+        </div>
+        <div className="relative mx-auto w-full max-w-xl flex-1 px-5 py-8">
+          <ExitButton />
+          <div className="relative mt-4 overflow-hidden rounded-3xl bg-linear-to-br from-emerald-950/50 via-zinc-900 to-zinc-950 p-5 ring-1 ring-emerald-500/25">
+            <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-emerald-500/20 blur-2xl" />
+            <div className="relative">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-emerald-300/80">
+                2 players
+              </p>
+              <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-50">
+                Infinity TTT
+              </h1>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                Keep up to three marks. When you place a fourth, your oldest
+                vanishes — get three in a row before it slips away.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            <section className="space-y-3 rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                Players
+              </h2>
+              <label className="block">
+                <span className="mb-1.5 block text-xs text-zinc-500">
+                  Player X
+                </span>
+                <input
+                  value={names.X}
+                  onChange={(e) =>
+                    setNames((n) => ({ ...n, X: e.target.value || "Player X" }))
+                  }
+                  maxLength={20}
+                  className="w-full rounded-2xl bg-zinc-950/70 px-4 py-3 text-base text-zinc-100 ring-1 ring-white/10 outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs text-zinc-500">
+                  Player O
+                </span>
+                <input
+                  value={names.O}
+                  onChange={(e) =>
+                    setNames((n) => ({ ...n, O: e.target.value || "Player O" }))
+                  }
+                  maxLength={20}
+                  className="w-full rounded-2xl bg-zinc-950/70 px-4 py-3 text-base text-zinc-100 ring-1 ring-white/10 outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+              </label>
+            </section>
+
+            <section className="space-y-3 rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                Marks
+              </h2>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMarkStyle("classic")}
+                  className={`rounded-2xl px-3 py-3 text-left ring-1 transition ${
+                    markStyle === "classic"
+                      ? "bg-emerald-500/15 ring-emerald-400/50"
+                      : "bg-zinc-950/50 ring-white/10 hover:ring-white/20"
+                  }`}
+                >
+                  <p className="text-lg font-bold tracking-wide text-zinc-100">
+                    <span className="text-emerald-300">X</span>
+                    <span className="mx-1.5 text-zinc-600">·</span>
+                    <span className="text-teal-300">O</span>
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">Classic</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMarkStyle("emoji")}
+                  className={`rounded-2xl px-3 py-3 text-left ring-1 transition ${
+                    markStyle === "emoji"
+                      ? "bg-emerald-500/15 ring-emerald-400/50"
+                      : "bg-zinc-950/50 ring-white/10 hover:ring-white/20"
+                  }`}
+                >
+                  <p className="text-lg leading-none">
+                    {EMOJI_PAIRS.find((p) => p.id === emojiPair)?.X}{" "}
+                    {EMOJI_PAIRS.find((p) => p.id === emojiPair)?.O}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">Emoji</p>
+                </button>
+              </div>
+
+              {markStyle === "emoji" && (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {EMOJI_PAIRS.map((pair) => {
+                    const selected = emojiPair === pair.id;
+                    return (
+                      <button
+                        key={pair.id}
+                        type="button"
+                        onClick={() => setEmojiPair(pair.id)}
+                        className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left ring-1 transition ${
+                          selected
+                            ? "bg-emerald-500/15 ring-emerald-400/50"
+                            : "bg-zinc-950/40 ring-white/8 hover:ring-white/20"
+                        }`}
+                      >
+                        <span className="text-xl leading-none">
+                          {pair.X} {pair.O}
+                        </span>
+                        <span className="text-xs text-zinc-400">
+                          {pair.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                How it works
+              </h2>
+              <ul className="mt-3 space-y-2 text-sm text-zinc-400">
+                <li>1. Place marks like normal tic tac toe.</li>
+                <li>
+                  2. When you have three marks, your oldest one blinks.
+                </li>
+                <li>
+                  3. On your fourth placement, that oldest mark disappears —
+                  anyone can take the spot.
+                </li>
+              </ul>
+            </section>
+
+            <button
+              type="button"
+              onClick={startGame}
+              className="w-full rounded-2xl bg-emerald-500 py-4 text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(16,185,129,0.3)] transition hover:bg-emerald-400 active:scale-[0.99]"
+            >
+              Start game
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const currentName = names[turn];
+  const xLabel = markGlyph("X", markStyle, emojiPair);
+  const oLabel = markGlyph("O", markStyle, emojiPair);
+
+  return (
+    <main className="relative flex flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-20 top-10 h-64 w-64 rounded-full bg-emerald-500/15 blur-3xl" />
+        <div className="absolute -right-16 bottom-20 h-56 w-56 rounded-full bg-teal-500/10 blur-3xl" />
+      </div>
+
+      <div className="relative mx-auto w-full max-w-xl flex-1 px-5 py-8">
+        <ExitButton />
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-emerald-300/80">
+              Fading marks
+            </p>
+            <h1 className="text-2xl font-bold tracking-tight">Infinity TTT</h1>
+          </div>
+          <button
+            type="button"
+            onClick={playAgain}
+            className="rounded-full bg-zinc-900/70 px-3 py-1.5 text-xs font-semibold text-zinc-300 ring-1 ring-white/10 transition hover:bg-zinc-800"
+          >
+            Reset board
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          {(["X", "O"] as Mark[]).map((m) => {
+            const isTurn = !winner && turn === m;
+            const label = m === "X" ? xLabel : oLabel;
+            return (
+              <div
+                key={m}
+                className={`rounded-2xl px-4 py-3 ring-1 transition ${
+                  isTurn
+                    ? m === "X"
+                      ? "bg-emerald-500/15 ring-emerald-400/40"
+                      : "bg-teal-500/15 ring-teal-400/40"
+                    : "bg-zinc-900/60 ring-white/8"
+                }`}
+              >
+                <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                  {markStyle === "classic" ? m : label}
+                </p>
+                <p className="truncate font-semibold text-zinc-100">
+                  {names[m]}
+                </p>
+                {isTurn && (
+                  <p className="mt-1 text-xs font-medium text-emerald-300">
+                    Your turn
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mx-auto mt-6 grid max-w-sm grid-cols-3 gap-2">
+          {board.map((cell, i) => {
+            const isFading = fading[i] != null;
+            const mark = cell;
+            const disabled = winner != null || mark != null;
+            return (
+              <button
+                key={i}
+                type="button"
+                disabled={disabled}
+                onClick={() => place(i)}
+                className={`flex aspect-square items-center justify-center rounded-2xl ring-1 transition active:scale-[0.97] disabled:cursor-default ${
+                  mark
+                    ? "bg-zinc-900 ring-white/10"
+                    : "bg-zinc-900/50 ring-white/8 hover:bg-zinc-800 hover:ring-emerald-400/40"
+                }`}
+              >
+                {mark && renderMark(mark, isFading)}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-6 rounded-2xl bg-zinc-900/70 px-4 py-4 text-center ring-1 ring-white/8">
+          {winner ? (
+            <>
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                Winner
+              </p>
+              <p className="mt-1 text-2xl font-bold text-emerald-300">
+                {names[winner]}
+              </p>
+              <button
+                type="button"
+                onClick={playAgain}
+                className="mt-4 w-full rounded-2xl bg-emerald-500 py-3.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
+              >
+                Play again
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-zinc-400">
+                Pass the phone to{" "}
+                <span className="font-semibold text-zinc-100">
+                  {currentName}
+                </span>
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Blinking marks vanish on that player&apos;s next turn.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}

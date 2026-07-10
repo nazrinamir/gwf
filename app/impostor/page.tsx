@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import ExitButton from "../ui/exit-button";
 import PlayerManager, { resolveNames } from "../ui/player-manager";
@@ -21,6 +22,7 @@ interface StoredSetup {
   players: string[];
   impostorCount: number;
   categoryId: string;
+  giveHint: boolean;
 }
 
 function loadStoredSetup(): StoredSetup | null {
@@ -42,6 +44,7 @@ function loadStoredSetup(): StoredSetup | null {
           : 1,
       categoryId:
         typeof parsed.categoryId === "string" ? parsed.categoryId : "any",
+      giveHint: parsed.giveHint !== false,
     };
   } catch {
     return null;
@@ -65,6 +68,7 @@ export default function ImpostorPage() {
   const playerCount = players.length;
   const [impostorCount, setImpostorCount] = useState(1);
   const [categoryId, setCategoryId] = useState<string>("any");
+  const [giveHint, setGiveHint] = useState(true);
   const [hydrated, setHydrated] = useState(false);
 
   // Restore saved setup once on mount (client only) to survive reloads.
@@ -74,6 +78,7 @@ export default function ImpostorPage() {
       setPlayers(stored.players);
       setImpostorCount(stored.impostorCount);
       setCategoryId(stored.categoryId);
+      setGiveHint(stored.giveHint);
     }
     setHydrated(true);
   }, []);
@@ -82,12 +87,17 @@ export default function ImpostorPage() {
   useEffect(() => {
     if (!hydrated) return;
     try {
-      const data: StoredSetup = { players, impostorCount, categoryId };
+      const data: StoredSetup = {
+        players,
+        impostorCount,
+        categoryId,
+        giveHint,
+      };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch {
       // Ignore write errors (e.g. storage disabled or full).
     }
-  }, [hydrated, players, impostorCount, categoryId]);
+  }, [hydrated, players, impostorCount, categoryId, giveHint]);
 
   const [entry, setEntry] = useState<WordEntry | null>(null);
   const [impostorHint, setImpostorHint] = useState("");
@@ -118,7 +128,7 @@ export default function ImpostorPage() {
 
     setChosenCategory(category);
     setEntry(word);
-    setImpostorHint(randomHint(word));
+    setImpostorHint(giveHint ? randomHint(word) : "");
     setRevealNames(resolveNames(players));
     setImpostorSet(new Set(indices));
     setRevealIndex(0);
@@ -151,16 +161,53 @@ export default function ImpostorPage() {
   }
 
   return (
-    <main className="flex flex-1 flex-col bg-zinc-950 text-zinc-100">
-      <div className="mx-auto w-full max-w-xl flex-1 px-5 py-8">
+    <main className="relative flex flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+      {phase === "setup" && (
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-20 top-10 h-64 w-64 rounded-full bg-sky-600/20 blur-3xl" />
+          <div className="absolute -right-16 top-48 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
+          <div className="absolute inset-x-0 bottom-0 h-40 bg-linear-to-t from-black/70 to-transparent" />
+        </div>
+      )}
+
+      <div className="relative mx-auto w-full max-w-xl flex-1 px-5 py-8">
         <ExitButton />
 
-        <div className="mt-4 flex items-center gap-3">
-          <span className="text-3xl">🕵️</span>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Who is the Impostor?
-          </h1>
-        </div>
+        {phase === "setup" ? (
+          <div className="relative mt-4 animate-rise overflow-hidden rounded-3xl bg-linear-to-br from-sky-950/60 via-zinc-900 to-zinc-950 p-5 ring-1 ring-sky-500/25">
+            <div className="pointer-events-none absolute -right-6 -top-8 h-32 w-32 rounded-full bg-sky-500/20 blur-2xl" />
+            <div className="relative flex items-center gap-4">
+              <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl ring-1 ring-sky-400/35 shadow-[0_0_28px_rgba(14,165,233,0.3)]">
+                <Image
+                  src="/impostor-card.png"
+                  alt=""
+                  fill
+                  sizes="64px"
+                  className="object-cover"
+                  priority
+                />
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-300/80">
+                  Pass &amp; play
+                </p>
+                <h1 className="text-3xl font-bold tracking-tight text-zinc-50">
+                  Who is the Impostor?
+                </h1>
+                <p className="mt-1 text-sm text-zinc-400">
+                  One word. One lie. Find the fake.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 flex items-center gap-3">
+            <span className="text-3xl">🕵️</span>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Who is the Impostor?
+            </h1>
+          </div>
+        )}
 
         {phase === "setup" && (
           <Setup
@@ -169,8 +216,10 @@ export default function ImpostorPage() {
             impostorCount={effectiveImpostors}
             maxImpostors={maxImpostors}
             categoryId={categoryId}
+            giveHint={giveHint}
             onAdjustImpostors={adjustImpostors}
             onSelectCategory={setCategoryId}
+            onToggleHint={setGiveHint}
             onStart={startGame}
           />
         )}
@@ -184,6 +233,7 @@ export default function ImpostorPage() {
             impostorCount={impostorSet.size}
             entry={entry}
             impostorHint={impostorHint}
+            giveHint={giveHint}
             showingCard={showingCard}
             onShow={() => setShowingCard(true)}
             onNext={nextReveal}
@@ -196,6 +246,7 @@ export default function ImpostorPage() {
             impostorCount={impostorSet.size}
             category={chosenCategory}
             names={revealNames}
+            giveHint={giveHint}
             onReveal={() => setPhase("result")}
           />
         )}
@@ -204,6 +255,7 @@ export default function ImpostorPage() {
           <Result
             entry={entry}
             impostorHint={impostorHint}
+            giveHint={giveHint}
             category={chosenCategory}
             impostorSet={impostorSet}
             names={revealNames}
@@ -231,12 +283,19 @@ function Stepper({
   onInc: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-zinc-900 px-4 py-3 ring-1 ring-white/10">
-      <div className="min-w-0">
-        <p className="font-medium">{label}</p>
-        {sublabel && <p className="text-xs text-zinc-400">{sublabel}</p>}
+    <div className="flex items-center justify-between gap-3 rounded-2xl bg-sky-950/30 px-4 py-3.5 ring-1 ring-sky-500/25">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-xl ring-1 ring-sky-400/25">
+          🎭
+        </span>
+        <div className="min-w-0">
+          <p className="font-semibold text-sky-50">{label}</p>
+          {sublabel && (
+            <p className="text-xs text-sky-200/55">{sublabel}</p>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-1.5">
         <button
           onClick={onDec}
           className="h-9 w-9 rounded-full bg-zinc-800 text-lg font-bold text-zinc-200 transition hover:bg-zinc-700 active:scale-95"
@@ -244,7 +303,7 @@ function Stepper({
         >
           −
         </button>
-        <span className="w-6 text-center text-lg font-semibold tabular-nums">
+        <span className="w-7 text-center text-xl font-bold tabular-nums text-zinc-50">
           {value}
         </span>
         <button
@@ -265,8 +324,10 @@ function Setup({
   impostorCount,
   maxImpostors,
   categoryId,
+  giveHint,
   onAdjustImpostors,
   onSelectCategory,
+  onToggleHint,
   onStart,
 }: {
   players: string[];
@@ -274,16 +335,34 @@ function Setup({
   impostorCount: number;
   maxImpostors: number;
   categoryId: string;
+  giveHint: boolean;
   onAdjustImpostors: (delta: number) => void;
   onSelectCategory: (id: string) => void;
+  onToggleHint: (value: boolean) => void;
   onStart: () => void;
 }) {
+  const selectedCategory =
+    categoryId === "any"
+      ? null
+      : CATEGORIES.find((c) => c.id === categoryId) ?? null;
+  const crewCount = Math.max(0, players.length - impostorCount);
+
   return (
-    <div className="mt-6 space-y-6">
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
-          Players
-        </h2>
+    <div className="mt-5 space-y-5 pb-28">
+      <section className="space-y-3 rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              Players
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Names stay saved for the next round.
+            </p>
+          </div>
+          <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-semibold tabular-nums text-zinc-300 ring-1 ring-white/10">
+            {players.length}/{MAX_PLAYERS}
+          </span>
+        </div>
         <PlayerManager
           players={players}
           onChange={onPlayersChange}
@@ -291,6 +370,17 @@ function Setup({
           max={MAX_PLAYERS}
           accent="sky"
         />
+      </section>
+
+      <section className="space-y-3 rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+            Round setup
+          </h2>
+          <p className="mt-1 text-sm text-zinc-400">
+            How many impostors hide in the crew.
+          </p>
+        </div>
         <Stepper
           label="Impostors"
           sublabel={`Up to ${maxImpostors} for this group`}
@@ -298,12 +388,74 @@ function Setup({
           onDec={() => onAdjustImpostors(-1)}
           onInc={() => onAdjustImpostors(1)}
         />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-2xl bg-zinc-950/60 px-3.5 py-3 ring-1 ring-white/6">
+            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+              Crew
+            </p>
+            <p className="mt-1 text-2xl font-bold tabular-nums text-emerald-300">
+              {crewCount}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-zinc-950/60 px-3.5 py-3 ring-1 ring-white/6">
+            <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+              Impostors
+            </p>
+            <p className="mt-1 text-2xl font-bold tabular-nums text-sky-300">
+              {impostorCount}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          role="switch"
+          aria-checked={giveHint}
+          onClick={() => onToggleHint(!giveHint)}
+          className={`flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3.5 text-left ring-1 transition ${
+            giveHint
+              ? "bg-sky-950/40 ring-sky-500/30"
+              : "bg-zinc-950/60 ring-white/8"
+          }`}
+        >
+          <div className="min-w-0">
+            <p className="font-semibold text-zinc-100">Give impostor a hint</p>
+            <p className="mt-0.5 text-xs text-zinc-400">
+              {giveHint
+                ? "Impostors see a one-word clue."
+                : "Impostors get no clue — harder mode."}
+            </p>
+          </div>
+          <span
+            className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+              giveHint ? "bg-sky-500" : "bg-zinc-700"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
+                giveHint ? "translate-x-5" : "translate-x-0"
+              }`}
+            />
+          </span>
+        </button>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
-          Category
-        </h2>
+      <section className="space-y-3 rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              Category
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Pick a theme — or leave it to chance.
+            </p>
+          </div>
+          <span className="rounded-full bg-sky-500/10 px-3 py-1 text-xs font-semibold text-sky-200 ring-1 ring-sky-400/25">
+            {selectedCategory
+              ? `${selectedCategory.emoji} ${selectedCategory.name}`
+              : "🎲 Surprise"}
+          </span>
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <CategoryButton
             active={categoryId === "any"}
@@ -323,16 +475,24 @@ function Setup({
         </div>
       </section>
 
-      <button
-        onClick={onStart}
-        className="w-full rounded-xl bg-sky-600 py-4 text-lg font-semibold text-white transition hover:bg-sky-500 active:scale-[0.99]"
-      >
-        Start round
-      </button>
-      <p className="text-center text-xs text-zinc-500">
-        Crew members see the word. Impostors only get a hint. Pass the phone
-        around one player at a time.
-      </p>
+      <div className="rounded-2xl bg-zinc-900/60 px-4 py-3 text-sm text-zinc-400 ring-1 ring-white/8">
+        Crew sees the secret word.
+        {giveHint
+          ? " Impostors only get a hint."
+          : " Impostors get no hint."}{" "}
+        Pass the phone one player at a time.
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-white/5 bg-zinc-950/90 px-5 py-4 backdrop-blur-md">
+        <div className="mx-auto w-full max-w-xl">
+          <button
+            onClick={onStart}
+            className="w-full rounded-2xl bg-sky-600 py-4 text-lg font-semibold text-white shadow-[0_12px_40px_rgba(2,132,199,0.35)] transition hover:bg-sky-500 active:scale-[0.99]"
+          >
+            Start round
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -351,14 +511,20 @@ function CategoryButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium ring-1 transition ${
+      className={`flex items-center gap-2.5 rounded-2xl px-3.5 py-3.5 text-left text-sm font-medium ring-1 transition active:scale-[0.98] ${
         active
-          ? "bg-sky-600 text-white ring-sky-400"
-          : "bg-zinc-900 text-zinc-200 ring-white/10 hover:bg-zinc-800"
+          ? "bg-sky-600 text-white ring-sky-300/50 shadow-[0_0_20px_rgba(2,132,199,0.28)]"
+          : "bg-zinc-950/60 text-zinc-300 ring-white/8 hover:bg-zinc-800 hover:text-zinc-100"
       }`}
     >
-      <span className="text-lg">{emoji}</span>
-      {name}
+      <span
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg ${
+          active ? "bg-white/15" : "bg-zinc-900"
+        }`}
+      >
+        {emoji}
+      </span>
+      <span className="leading-snug">{name}</span>
     </button>
   );
 }
@@ -371,6 +537,7 @@ function Reveal({
   impostorCount,
   entry,
   impostorHint,
+  giveHint,
   showingCard,
   onShow,
   onNext,
@@ -382,6 +549,7 @@ function Reveal({
   impostorCount: number;
   entry: WordEntry;
   impostorHint: string;
+  giveHint: boolean;
   showingCard: boolean;
   onShow: () => void;
   onNext: () => void;
@@ -460,18 +628,28 @@ function Reveal({
                     <h2 className="mt-2 text-4xl font-bold tracking-wide text-red-300">
                       IMPOSTOR
                     </h2>
-                    <p className="mt-4 text-xs uppercase tracking-widest text-zinc-500">
-                      Your clue
-                    </p>
-                    <p className="mt-1 rounded-xl bg-black/30 px-4 py-2 text-lg font-semibold text-zinc-100">
-                      {impostorHint}
-                    </p>
+                    {giveHint ? (
+                      <>
+                        <p className="mt-4 text-xs uppercase tracking-widest text-zinc-500">
+                          Your clue
+                        </p>
+                        <p className="mt-1 rounded-xl bg-black/30 px-4 py-2 text-lg font-semibold text-zinc-100">
+                          {impostorHint}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="mt-4 px-2 text-sm text-zinc-400">
+                        No clue this round. Listen hard and blend in.
+                      </p>
+                    )}
                     {impostorCount > 1 && (
                       <p className="mt-4 rounded-xl bg-white/5 px-3 py-2 text-xs leading-relaxed text-zinc-300 ring-1 ring-white/10">
                         {impostorCount === 2
-                          ? "1 other player shares this clue."
-                          : `${impostorCount - 1} other players share this clue.`}{" "}
-                        Use it first before them. Good luck.
+                          ? "1 other player is also an impostor."
+                          : `${impostorCount - 1} other players are also impostors.`}{" "}
+                        {giveHint
+                          ? "Use the clue first before them. Good luck."
+                          : "Work together carefully. Good luck."}
                       </p>
                     )}
                   </div>
@@ -510,12 +688,14 @@ function PlayPhase({
   impostorCount,
   category,
   names,
+  giveHint,
   onReveal,
 }: {
   playerCount: number;
   impostorCount: number;
   category: Category | null;
   names: string[];
+  giveHint: boolean;
   onReveal: () => void;
 }) {
   // Pick a random starter and rotation direction once per round.
@@ -568,7 +748,12 @@ function PlayPhase({
         </p>
         <ul className="mt-4 space-y-2 text-sm text-zinc-400">
           <li>• Crew: prove you know the word, but don&apos;t make it obvious.</li>
-          <li>• Impostor: blend in using only your hint.</li>
+          <li>
+            • Impostor:{" "}
+            {giveHint
+              ? "blend in using only your hint."
+              : "you have no clue — listen and bluff."}
+          </li>
           <li>• Then discuss and accuse before revealing.</li>
         </ul>
       </div>
@@ -579,6 +764,7 @@ function PlayPhase({
           {category ? `${category.emoji} ${category.name} · ` : ""}
           {playerCount} players · {impostorCount}{" "}
           {impostorCount === 1 ? "impostor" : "impostors"}
+          {giveHint ? "" : " · no hint"}
         </span>
       </div>
 
@@ -595,6 +781,7 @@ function PlayPhase({
 function Result({
   entry,
   impostorHint,
+  giveHint,
   category,
   impostorSet,
   names,
@@ -604,6 +791,7 @@ function Result({
 }: {
   entry: WordEntry;
   impostorHint: string;
+  giveHint: boolean;
   category: Category | null;
   impostorSet: Set<number>;
   names: string[];
@@ -642,9 +830,15 @@ function Result({
               </span>
             ))}
           </div>
-          <p className="mt-4 text-sm text-zinc-400">
-            Their hint was &ldquo;{impostorHint}&rdquo;
-          </p>
+          {giveHint && impostorHint ? (
+            <p className="mt-4 text-sm text-zinc-400">
+              Their hint was &ldquo;{impostorHint}&rdquo;
+            </p>
+          ) : (
+            <p className="mt-4 text-sm text-zinc-400">
+              This round had no impostor hint.
+            </p>
+          )}
         </div>
       </div>
 

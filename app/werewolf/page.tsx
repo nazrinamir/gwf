@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ExitButton from "../ui/exit-button";
 import PlayerManager, { resolveNames } from "../ui/player-manager";
+import ClassicGame from "./classic/ClassicGame";
 import {
   type NightInput,
   type NightResult,
@@ -31,6 +32,8 @@ import {
   type RoleId,
   type Trait,
 } from "./roles";
+
+type GameMode = "classic" | "village";
 
 type Phase =
   | "setup"
@@ -109,6 +112,7 @@ function loadStoredSetup(): StoredSetup | null {
 }
 
 export default function WerewolfPage() {
+  const [mode, setMode] = useState<GameMode | null>(null);
   const [phase, setPhase] = useState<Phase>("setup");
   const [players, setPlayers] = useState<string[]>(() =>
     Array.from({ length: 7 }, () => ""),
@@ -422,15 +426,234 @@ export default function WerewolfPage() {
     setWinner(null);
   }
 
+  if (mode === null) {
+    return (
+      <main className="relative flex flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-24 top-0 h-72 w-72 rounded-full bg-rose-600/20 blur-3xl" />
+          <div className="absolute -right-16 top-40 h-64 w-64 rounded-full bg-amber-500/10 blur-3xl" />
+          <div className="absolute inset-x-0 bottom-0 h-48 bg-linear-to-t from-black/80 to-transparent" />
+        </div>
+
+        <div className="relative mx-auto flex w-full max-w-xl flex-1 flex-col px-5 py-8">
+          <ExitButton />
+
+          <div className="mt-6 animate-rise">
+            <div className="flex items-center gap-4">
+              <div className="relative h-16 w-16 overflow-hidden rounded-2xl ring-1 ring-rose-400/30 shadow-[0_0_30px_rgba(225,29,72,0.25)]">
+                <Image
+                  src="/werewolf/werewolf.png"
+                  alt=""
+                  fill
+                  sizes="64px"
+                  className="object-cover"
+                  priority
+                />
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-rose-300/80">
+                  Pass &amp; play
+                </p>
+                <h1 className="text-4xl font-bold tracking-tight text-zinc-50">
+                  Werewolf
+                </h1>
+              </div>
+            </div>
+            <p className="mt-4 max-w-sm text-sm leading-relaxed text-zinc-400">
+              One phone. Secret roles. Pick how your village hunts tonight.
+            </p>
+          </div>
+
+          <div className="mt-8 flex flex-1 flex-col gap-4">
+            <button
+              onClick={() => setMode("classic")}
+              className="group relative overflow-hidden rounded-3xl bg-linear-to-br from-rose-950/80 via-zinc-900 to-zinc-950 p-5 text-left ring-1 ring-rose-500/25 transition hover:ring-rose-400/50 active:scale-[0.99]"
+            >
+              <div className="pointer-events-none absolute -right-6 -top-8 h-36 w-36 rounded-full bg-rose-500/20 blur-2xl transition group-hover:bg-rose-500/30" />
+              <div className="relative flex items-start justify-between gap-3">
+                <div>
+                  <span className="inline-flex items-center rounded-full bg-rose-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-rose-200 ring-1 ring-rose-400/30">
+                    Recommended
+                  </span>
+                  <h2 className="mt-3 text-2xl font-bold tracking-tight text-zinc-50">
+                    Classic
+                  </h2>
+                  <p className="mt-1 text-sm text-zinc-400">
+                    Traditional day / night loop with special roles.
+                  </p>
+                </div>
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-rose-500/15 text-2xl ring-1 ring-rose-400/25">
+                  🌙
+                </span>
+              </div>
+
+              <div className="relative mt-4 flex flex-wrap gap-1.5">
+                {[
+                  "Alpha",
+                  "Seeker",
+                  "Knight",
+                  "Vampire",
+                  "Cupid",
+                  "Hunter",
+                  "Jester",
+                ].map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full bg-zinc-950/70 px-2.5 py-1 text-[11px] font-medium text-zinc-300 ring-1 ring-white/8"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+
+              <div className="relative mt-5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-200/80">
+                <span>Discuss</span>
+                <span className="text-rose-500/50">→</span>
+                <span>Vote</span>
+                <span className="text-rose-500/50">→</span>
+                <span>Trial</span>
+                <span className="text-rose-500/50">→</span>
+                <span>Night</span>
+              </div>
+
+              <div className="relative mt-5 flex items-center justify-between border-t border-white/8 pt-4">
+                <span className="text-sm font-semibold text-rose-100">
+                  Play Classic
+                </span>
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-600 text-white transition group-hover:bg-rose-500">
+                  →
+                </span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setMode("village")}
+              className="group relative overflow-hidden rounded-3xl bg-linear-to-br from-amber-950/50 via-zinc-900 to-zinc-950 p-5 text-left ring-1 ring-amber-500/20 transition hover:ring-amber-400/45 active:scale-[0.99]"
+            >
+              <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-amber-500/15 blur-2xl transition group-hover:bg-amber-500/25" />
+              <div className="relative flex items-start justify-between gap-3">
+                <div>
+                  <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-200 ring-1 ring-amber-400/25">
+                    Story-rich
+                  </span>
+                  <h2 className="mt-3 text-2xl font-bold tracking-tight text-zinc-50">
+                    Village
+                  </h2>
+                  <p className="mt-1 text-sm text-zinc-400">
+                    Lead Villager, morning reports, and hidden traits.
+                  </p>
+                </div>
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-2xl ring-1 ring-amber-400/25">
+                  🏘️
+                </span>
+              </div>
+
+              <div className="relative mt-4 flex flex-wrap gap-1.5">
+                {["Lead", "Doctor", "Knight", "Traits", "Jail"].map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full bg-zinc-950/70 px-2.5 py-1 text-[11px] font-medium text-zinc-300 ring-1 ring-white/8"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+
+              <div className="relative mt-5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-200/80">
+                <span>News</span>
+                <span className="text-amber-500/50">→</span>
+                <span>Talk</span>
+                <span className="text-amber-500/50">→</span>
+                <span>Vote</span>
+                <span className="text-amber-500/50">→</span>
+                <span>Night</span>
+              </div>
+
+              <div className="relative mt-5 flex items-center justify-between border-t border-white/8 pt-4">
+                <span className="text-sm font-semibold text-amber-100">
+                  Play Village
+                </span>
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500 text-zinc-950 transition group-hover:bg-amber-400">
+                  →
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (mode === "classic") {
+    return (
+      <main className="flex flex-1 flex-col bg-zinc-950 text-zinc-100">
+        <div className="mx-auto w-full max-w-xl flex-1 px-5 py-8">
+          <ExitButton />
+          <ClassicGame onBack={() => setMode(null)} />
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="flex flex-1 flex-col bg-zinc-950 text-zinc-100">
-      <div className="mx-auto w-full max-w-xl flex-1 px-5 py-8">
+    <main className="relative flex flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+      {phase === "setup" && (
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-20 top-8 h-64 w-64 rounded-full bg-amber-500/15 blur-3xl" />
+          <div className="absolute -right-16 top-40 h-56 w-56 rounded-full bg-rose-600/10 blur-3xl" />
+          <div className="absolute inset-x-0 bottom-0 h-40 bg-linear-to-t from-black/70 to-transparent" />
+        </div>
+      )}
+
+      <div className="relative mx-auto w-full max-w-xl flex-1 px-5 py-8">
         <ExitButton />
 
-        <div className="mt-4 flex items-center gap-3">
-          <span className="text-3xl">🐺</span>
-          <h1 className="text-2xl font-bold tracking-tight">Werewolf</h1>
-        </div>
+        {phase === "setup" ? (
+          <div className="relative mt-4 animate-rise overflow-hidden rounded-3xl bg-linear-to-br from-amber-950/50 via-zinc-900 to-zinc-950 p-5 ring-1 ring-amber-500/25">
+            <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-amber-500/20 blur-2xl" />
+            <div className="relative flex items-start justify-between gap-3">
+              <div className="flex items-center gap-4">
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl ring-1 ring-amber-400/35 shadow-[0_0_28px_rgba(245,158,11,0.28)]">
+                  <Image
+                    src="/werewolf/villager.png"
+                    alt=""
+                    fill
+                    sizes="64px"
+                    className="object-cover"
+                    priority
+                  />
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-amber-300/80">
+                    Village mode
+                  </p>
+                  <h1 className="text-3xl font-bold tracking-tight text-zinc-50">
+                    Werewolf
+                  </h1>
+                  <p className="mt-1 text-sm text-zinc-400">
+                    Lead Villager, traits, and morning reports.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setMode(null)}
+                className="shrink-0 rounded-full bg-zinc-950/60 px-3 py-2 text-xs font-semibold text-zinc-300 ring-1 ring-white/10 transition hover:bg-zinc-800 hover:text-zinc-100"
+              >
+                Change mode
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 flex items-center gap-3">
+            <span className="text-3xl">🐺</span>
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                Village mode
+              </p>
+              <h1 className="text-2xl font-bold tracking-tight">Werewolf</h1>
+            </div>
+          </div>
+        )}
 
         {phase === "setup" && (
           <Setup
@@ -607,6 +830,7 @@ function Stepper({
   onDec,
   onInc,
   emoji,
+  active,
 }: {
   label: string;
   sublabel?: string;
@@ -614,25 +838,43 @@ function Stepper({
   onDec: () => void;
   onInc: () => void;
   emoji?: string;
+  active?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-zinc-900 px-4 py-3 ring-1 ring-white/10">
-      <div className="min-w-0">
-        <p className="font-medium">
-          {emoji ? `${emoji} ` : ""}
-          {label}
-        </p>
-        {sublabel && <p className="text-xs text-zinc-400">{sublabel}</p>}
+    <div
+      className={`flex items-center justify-between gap-3 rounded-2xl px-3.5 py-3 transition ${
+        active
+          ? "bg-zinc-900 ring-1 ring-amber-500/35"
+          : "bg-zinc-950/50 ring-1 ring-white/6"
+      }`}
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl ${
+            active ? "bg-amber-500/15 ring-1 ring-amber-400/30" : "bg-zinc-900"
+          }`}
+        >
+          {emoji}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-zinc-100">{label}</p>
+          {sublabel && (
+            <p className="truncate text-xs leading-snug text-zinc-500">
+              {sublabel}
+            </p>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-1.5">
         <button
           onClick={onDec}
-          className="h-9 w-9 rounded-full bg-zinc-800 text-lg font-bold text-zinc-200 transition hover:bg-zinc-700 active:scale-95"
+          disabled={value <= 0}
+          className="h-9 w-9 rounded-full bg-zinc-800 text-lg font-bold text-zinc-200 transition hover:bg-zinc-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
           aria-label={`Decrease ${label}`}
         >
           −
         </button>
-        <span className="w-6 text-center text-lg font-semibold tabular-nums">
+        <span className="w-7 text-center text-lg font-bold tabular-nums text-zinc-50">
           {value}
         </span>
         <button
@@ -678,12 +920,31 @@ function Setup({
   onAdjustCount: (id: RoleId, delta: number) => void;
   onStart: () => void;
 }) {
+  const filledRatio = Math.min(
+    1,
+    Math.max(0, specialTotal / Math.max(playerCount, 1)),
+  );
+  const seatLabel = tooManySpecials
+    ? "Too many specials"
+    : `${specialTotal} special · ${Math.max(0, villagerCount)} villagers`;
+  const displayVillage = villageName.trim() || "Unnamed village";
+
   return (
-    <div className="mt-6 space-y-6">
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
-          Players
-        </h2>
+    <div className="mt-5 space-y-5 pb-28">
+      <section className="space-y-3 rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              Players
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Names stay on this device for next game.
+            </p>
+          </div>
+          <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-semibold tabular-nums text-zinc-300 ring-1 ring-white/10">
+            {playerCount}/{MAX_PLAYERS}
+          </span>
+        </div>
         <PlayerManager
           players={players}
           onChange={onPlayersChange}
@@ -693,23 +954,46 @@ function Setup({
         />
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
-          Village name
-        </h2>
+      <section className="space-y-3 rounded-3xl bg-linear-to-br from-amber-950/35 to-zinc-900 p-4 ring-1 ring-amber-500/20">
+        <div className="flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/15 text-lg">
+            🏘️
+          </span>
+          <div>
+            <h2 className="text-sm font-bold text-amber-100">Village name</h2>
+            <p className="text-[11px] text-amber-200/60">
+              Spoken aloud each morning
+            </p>
+          </div>
+        </div>
         <input
           value={villageName}
           onChange={(e) => onVillageNameChange(e.target.value)}
           placeholder="e.g. Ravenhollow"
           maxLength={40}
-          className="w-full rounded-xl bg-zinc-900 px-4 py-3 text-base text-zinc-100 ring-1 ring-white/10 outline-none placeholder:text-zinc-600 focus:ring-2 focus:ring-rose-500/60"
+          className="w-full rounded-2xl bg-zinc-950/70 px-4 py-3.5 text-base text-zinc-100 ring-1 ring-white/10 outline-none placeholder:text-zinc-600 focus:ring-2 focus:ring-amber-500/50"
         />
+        <p className="text-xs text-amber-200/50">
+          Tonight&apos;s village:{" "}
+          <span className="font-semibold text-amber-100">{displayVillage}</span>
+        </p>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
-          Roles
-        </h2>
+      <section className="space-y-4 rounded-3xl bg-zinc-900/70 p-4 ring-1 ring-white/8">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              Roles
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Villagers fill leftover seats — each gets a hidden trait.
+            </p>
+          </div>
+          <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-semibold text-zinc-300 ring-1 ring-white/10">
+            {counts.werewolf} wolf{counts.werewolf === 1 ? "" : "ves"}
+          </span>
+        </div>
+
         <div className="space-y-2">
           {CONFIGURABLE_ROLES.map((id) => {
             const role = ROLES[id];
@@ -720,51 +1004,88 @@ function Setup({
                 label={role.name}
                 sublabel={role.short}
                 value={counts[id]}
+                active={counts[id] > 0}
                 onDec={() => onAdjustCount(id, -1)}
                 onInc={() => onAdjustCount(id, 1)}
               />
             );
           })}
-          <div className="flex items-center justify-between rounded-xl bg-zinc-900/60 px-4 py-3 ring-1 ring-white/5">
-            <div>
-              <p className="font-medium">{ROLES.villager.emoji} Villagers</p>
-              <p className="text-xs text-zinc-400">
-                Fill the rest — each gets a hidden trait
-              </p>
+
+          <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-950/25 px-3.5 py-3 ring-1 ring-emerald-500/20">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/10 text-xl">
+                {ROLES.villager.emoji}
+              </span>
+              <div>
+                <p className="font-semibold text-emerald-50">Villagers</p>
+                <p className="text-xs text-emerald-200/60">
+                  Auto-filled · hidden traits
+                </p>
+              </div>
             </div>
-            <span className="text-lg font-semibold tabular-nums text-zinc-300">
+            <span className="text-2xl font-bold tabular-nums text-emerald-200">
               {Math.max(0, villagerCount)}
             </span>
           </div>
         </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_TRAITS.map((id) => (
+            <span
+              key={id}
+              className="rounded-full bg-zinc-950/70 px-2.5 py-1 text-[11px] font-medium text-zinc-300 ring-1 ring-white/8"
+            >
+              {TRAITS[id].emoji} {TRAITS[id].name}
+            </span>
+          ))}
+        </div>
       </section>
 
-      <div className="rounded-xl bg-zinc-900/60 px-4 py-3 text-sm ring-1 ring-white/5">
-        <span className="text-zinc-400">Special roles: </span>
-        <span className="font-medium">{specialTotal}</span>
-        <span className="text-zinc-400"> / {playerCount} seats</span>
+      <div
+        className={`rounded-2xl px-4 py-3 ring-1 ${
+          canStart
+            ? "bg-zinc-900/80 ring-white/10"
+            : "bg-rose-950/30 ring-rose-500/30"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-zinc-400">Seat balance</span>
+          <span className="font-medium text-zinc-200">{seatLabel}</span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-950">
+          <div
+            className={`h-full rounded-full transition-all ${
+              tooManySpecials ? "bg-rose-500" : "bg-amber-500/80"
+            }`}
+            style={{ width: `${Math.round(filledRatio * 100)}%` }}
+          />
+        </div>
         {tooFewPlayers && (
-          <p className="mt-1 text-rose-400">
-            Add at least {MIN_PLAYERS} players to start.
+          <p className="mt-2 text-sm text-rose-400">
+            Need at least {MIN_PLAYERS} players.
           </p>
         )}
         {!tooFewPlayers && tooManySpecials && (
-          <p className="mt-1 text-rose-400">
+          <p className="mt-2 text-sm text-rose-400">
             Too many roles for {playerCount} players.
           </p>
         )}
         {!tooFewPlayers && !tooManySpecials && noWerewolf && (
-          <p className="mt-1 text-amber-400">Add at least one werewolf.</p>
+          <p className="mt-2 text-sm text-amber-400">Add at least one werewolf.</p>
         )}
       </div>
 
-      <button
-        onClick={onStart}
-        disabled={!canStart}
-        className="w-full rounded-xl bg-rose-600 py-4 text-lg font-semibold text-white transition hover:bg-rose-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
-      >
-        Deal roles
-      </button>
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-white/5 bg-zinc-950/90 px-5 py-4 backdrop-blur-md">
+        <div className="mx-auto w-full max-w-xl">
+          <button
+            onClick={onStart}
+            disabled={!canStart}
+            className="w-full rounded-2xl bg-amber-500 py-4 text-lg font-semibold text-zinc-950 shadow-[0_12px_40px_rgba(245,158,11,0.3)] transition hover:bg-amber-400 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none"
+          >
+            Deal roles
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
